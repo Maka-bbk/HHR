@@ -1,0 +1,18 @@
+{
+  "run_identity_sha256": "b0a14a4245babdedf7a99ea62432fc108c058e71649a01a002550e373f59dca0",
+  "summary_sha256": "3359084695ea9e8f0f4e0736f4496572a898fdbca4ca64d32d4328e2cb663d33",
+  "selected_checkpoint_sha256": "64a405bad7aa78e3638bf03cc10ba86d40001890967f312e0998ea162e90002a",
+  "artifact_sha256": {
+    "run_manifest.json": "0026c2e60249bc0448c8461b342c448bd1d0bbe27f8ecb112266726fed1fc3fe",
+    "boundary_calibration.json": "2c1e90aa804a095b6194599f2045df68935ab07ff10b2165d8ae5eb04a4f1a7e",
+    "codebook_initialization.json": "702a1d13e3ff61f49f201ed8edc1ae1a771f688aa6956b7843fec902b10756f1",
+    "history.jsonl": "69d29824d083cad787135a68293acebfd663a3a8c5d427acaf39ed9a3590490c",
+    "checkpoint_last.pt": "a077408d950908ca9ff1c8c6fcf830922073fc7129eb64987d3948b8f2f59e98",
+    "checkpoint_best.pt": "64a405bad7aa78e3638bf03cc10ba86d40001890967f312e0998ea162e90002a",
+    "outer_test_primitive_trajectories.jsonl": "314ef41fe7dee6abbb47ad7b951b8640b73e5b4341871719e594ca293294cdd8",
+    "cgcd_confusion_heatmap.png": "0b82589a7e10aa3f141988b06136d5e9cbd8d2e10e7df32c665be44751a1a799",
+    "activity_codebook_heatmap.png": "da2eaea9369a457a289e6477df0a54f0563882234ec129d8f325d5e082977687",
+    "fixed_trajectories_and_predictions.png": "43e33a41e09aedf9ce6fa941d718404d9c0a450caa407c42d996fc4e1a7cb873",
+    "summary.json": "3359084695ea9e8f0f4e0736f4496572a898fdbca4ca64d32d4328e2cb663d33"
+  }
+}

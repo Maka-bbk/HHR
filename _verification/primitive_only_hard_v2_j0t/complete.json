@@ -1,0 +1,17 @@
+{
+  "run_identity_sha256": "f2b6262171b3497ed8f9b0a2f51c5d1758abbe4b9592d11a06eb55d7523622f8",
+  "summary_sha256": "eb9454158b56bf0bb0ceded979d12616079fd705eba6a4e2b29c07d4ed4d128f",
+  "selected_checkpoint_sha256": "b09be6d839974912b2f4b9dc1c828c5d184b345e234b210ffc419730e28d2bd5",
+  "artifact_sha256": {
+    "run_manifest.json": "96d756d3c155da1d2fd2fbe523c09e528ca967b882739383f78a2dd15ae141f2",
+    "boundary_calibration.json": "22d6435976060e8f2ac8e7e8c25276aee23e18bb47086d51380aa5cb8a2eb9e4",
+    "history.jsonl": "9217ee214d26353dfa79997c4bf1b90f6d14a279163be4ae71e5214486d7aad5",
+    "checkpoint_last.pt": "292f62007bec17e7f115a493d654f5df01858c8c707916ce2380aaaa8280322f",
+    "checkpoint_best.pt": "b09be6d839974912b2f4b9dc1c828c5d184b345e234b210ffc419730e28d2bd5",
+    "outer_test_primitive_trajectories.jsonl": "1fd3c58e8fbf2d130703e66c6a5257129a651ff734b6d0321dad6591492a37a6",
+    "cgcd_confusion_heatmap.png": "063e6032c6c9a225f000ed8e93e276a16d72888b6c3cb83f80913288ff8ccaa8",
+    "activity_codebook_heatmap.png": "566ce7d0aaa21d473d8978ce58b045aee1257c7fec8cca7e6f4cd007090fd274",
+    "fixed_trajectories_and_predictions.png": "a9430d3ee633536deaff2123693f1cfb3211e611388534d6cee7c8cce8f828db",
+    "summary.json": "eb9454158b56bf0bb0ceded979d12616079fd705eba6a4e2b29c07d4ed4d128f"
+  }
+}

@@ -1,0 +1,1328 @@
+{
+  "schema": "one_stage_motion_trajectory_run_v4",
+  "profile": "J0-U",
+  "fold": 2,
+  "seed": 5,
+  "target_epochs": 20,
+  "data_root": "/mnt/d/WorkDir/DataSet/USC-HAD",
+  "data_protocol_identity": "16647ec4d79822b4f45366f231035b49630271c932eb94a246fb5fd3cdb5e6d4",
+  "data_parameters": {
+    "labelled_fraction": 0.8,
+    "anomaly_policy": "report"
+  },
+  "model_config": {
+    "in_channels": 6,
+    "frame_size": 128,
+    "frame_stride": 64,
+    "local_hidden_dim": 64,
+    "local_embedding_dim": 64,
+    "local_encoder_type": "resnet1d",
+    "state_hidden_dim": 32,
+    "state_dim": 12,
+    "codebook_size": 32,
+    "codebook_temperature": 0.25,
+    "use_gumbel_training": false,
+    "commitment_beta": 0.25,
+    "dead_code_fraction": 0.001,
+    "trajectory_input_dim": 64,
+    "trajectory_hidden_dim": 64,
+    "trajectory_layers": 1,
+    "trajectory_dropout": 0.0,
+    "trajectory_mask_ratio": 0.15,
+    "trajectory_input_mode": "primitive_only",
+    "num_classes": 6,
+    "unlabelled_index": -100,
+    "epsilon": 1e-06
+  },
+  "loss_config": {
+    "profile": "J0-U",
+    "raw_boundary_weight": 1.0,
+    "vq_commitment_weight": 0.25,
+    "vq_codebook_weight": 0.0,
+    "content_reconstruction_weight": 0.5,
+    "stable_next_content_weight": 0.25,
+    "feature_noncollapse_weight": 2.0,
+    "utilization_floor_weight": 1.0,
+    "assignment_confidence_weight": 5.0,
+    "codebook_diversity_weight": 0.0,
+    "boundary_sparsity_weight": 0.02,
+    "minimum_duration_weight": 0.05,
+    "state_reconstruction_weight": 0.5,
+    "masked_token_prediction_weight": 1.0,
+    "masked_state_reconstruction_weight": 0.5,
+    "trajectory_ce_weight": 0.0,
+    "utilization_entropy_floor": 0.5,
+    "utilization_temperature": 1.0,
+    "maximum_assignment_entropy": 0.5,
+    "maximum_codebook_cosine": 0.25,
+    "noncollapse_target_std": 1.0,
+    "noncollapse_variance_weight": 1.0,
+    "noncollapse_covariance_weight": 1.0,
+    "noncollapse_windows_per_trial": 4,
+    "maximum_unanchored_boundary_rate": 0.35,
+    "minimum_segment_windows": 2,
+    "state_huber_delta": 1.0,
+    "old_class_count": 6,
+    "unlabelled_index": -100,
+    "window_classification_used": false,
+    "infonce_used": false,
+    "activity_supcon_used": false,
+    "dino_used": false,
+    "memax_used": false,
+    "happy_checkpoint_used": false,
+    "boundary_anchor_source": "raw_kinematic_only",
+    "label_scope": "none",
+    "trajectory_encoder_label_free_objective": "masked pseudo-token prediction plus masked physical-state reconstruction",
+    "pseudo_token_target_gradient": "stopped_by_integer_target",
+    "utilization_regularizer": "trial-balanced straight-through hard-assignment marginal entropy floor plus conditional soft-assignment confidence ceiling",
+    "objective_scopes": {
+      "raw_boundary": "valid model-frame boundaries; raw q50/q90 anchors only",
+      "vq_commitment": "valid local window embeddings; encoder gradient only",
+      "vq_codebook": "valid local window embeddings; codebook gradient only",
+      "content_reconstruction": "valid quantized tokens; detached local-content targets",
+      "stable_next_content": "raw-q50 stable adjacent frames only; detached next-content targets",
+      "feature_noncollapse": "trial-balanced post-LayerNorm/pre-L2 local features; VICReg-style variance/covariance",
+      "utilization_floor": "trial-balanced marginal entropy of deterministic straight-through hard VQ assignments (hard forward, soft backward)",
+      "assignment_confidence": "mean conditional entropy ceiling; closes uniform-soft/single-argmax loophole",
+      "codebook_diversity": "pairwise normalized code-vector separation",
+      "boundary_sparsity": "valid non-q90 boundaries; one-sided rate budget",
+      "minimum_duration": "valid within-trial boundary probabilities",
+      "state_reconstruction": "valid windows; detached label-free physical targets",
+      "masked_token_prediction": "masked valid trajectory positions; detached integer VQ targets",
+      "masked_state_reconstruction": "masked valid trajectory positions; detached physical targets",
+      "trajectory_ce": "disabled"
+    }
+  },
+  "optimizer": {
+    "name": "AdamW",
+    "learning_rate": 0.0003,
+    "weight_decay": 0.0001,
+    "excludes_ema_codebook_vectors": true
+  },
+  "training_parameters": {
+    "batch_size": 8,
+    "eval_batch_size": 16,
+    "num_workers": 0,
+    "requested_device": "cuda",
+    "resolved_device": "cuda",
+    "gradient_clip": 5.0,
+    "warmup_epochs": 10,
+    "early_stop_patience": 0,
+    "temperature_start": 2.0,
+    "temperature_end": 0.25,
+    "use_gumbel_training": false,
+    "codebook_init": "kmeans++",
+    "codebook_init_windows_per_trial": 4,
+    "codebook_init_n_init": 10,
+    "codebook_update": "ema",
+    "codebook_ema_decay": 0.99,
+    "minimum_hard_code_fraction": 0.25,
+    "minimum_hard_effective_code_fraction": 0.2,
+    "maximum_hard_code_share": 0.5,
+    "minimum_local_feature_effective_rank": 4.0,
+    "maximum_local_feature_centroid_norm": 0.98,
+    "minimum_assignment_margin": 0.01,
+    "deterministic": true,
+    "checkpoint_selection": "common_unsupervised"
+  },
+  "evaluation_parameters": {
+    "cluster_restarts": 5,
+    "order_shuffles": 3
+  },
+  "source_identity": {
+    "schema": "one_stage_core_source_sha256_v1",
+    "files": {
+      "requirements-one-stage.txt": "fedea66beb5cbb6c39f249c9d134153aeea57f01e1f5d3bc9f5fc36012e35a47",
+      "data/uschad_trials.py": "e6fe8a7b108c31c90c68fce0ae8a0f187835d89b7c48391c58b5d1c4b1df4402",
+      "experiments/motion_primitive/one_stage_boundaries.py": "7efa9421657eb5a0eded27ad3d5d673e396428759091e08fe1f9aa98df5abf64",
+      "experiments/motion_primitive/one_stage_evaluation.py": "cf4808e06ef42081dc1ac6239bd1a717484b9afda05757ce940fc265f7824cf0",
+      "experiments/motion_primitive/one_stage_losses.py": "680eb8070c8b0d032d7689504b0ccb190a066a330db60b43f609ee5d3443de1f",
+      "experiments/motion_primitive/one_stage_visualization.py": "612a71eedc6bed02e8266815340aac4026dbc7d8f5b03f6659bc1e61b9c1ecad",
+      "experiments/motion_primitive/raw_changepoint.py": "6226df1110e5f236a9c21c018b72f7e059f567e72a861655bbe4cb5cf9effd29",
+      "experiments/motion_primitive/train_one_stage.py": "8bf42796c4011e340f059298728a5244d7e6169fcfd05f51d719b4c527d992a4",
+      "models/motion_trajectory.py": "6e59f294b179b6adad3f218d3c3505d7217bbdffc047375e141b21c5d0348aac",
+      "models/resnet1d.py": "6efe036e1ceda0008023ab5a2937650189580773b7ec0d7e9caeabb4ce396e32"
+    },
+    "identity_sha256": "9eaceaab75d8d70b12bbb7a5eb5e701283515c9e3224e2937913d5ba01fe886f"
+  },
+  "runtime_environment": {
+    "python": "3.13.14",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "packages": {
+      "numpy": "2.5.0",
+      "scipy": "1.18.0",
+      "scikit-learn": "1.9.0",
+      "matplotlib": "3.11.0",
+      "torch": "2.11.0+cu128"
+    },
+    "torch_cuda_version": "12.8",
+    "cudnn_version": 91900,
+    "cuda_available": true,
+    "cuda_device_names": [
+      "NVIDIA GeForce RTX 5060 Ti"
+    ],
+    "identity_sha256": "b9334bc4295a1e9a0353e0cb0f57a06a143880c028eb8c77c70bb22c83f1f6b8"
+  },
+  "one_model_one_optimizer_continuous_run": true,
+  "codebook_update_within_same_training_stage": true,
+  "happy_checkpoint_loaded": false,
+  "run_identity_sha256": "4e04b40f71c99490715874e576e38c4df2e913eb6055e5f848a5b81221d12b64",
+  "data_audit": {
+    "schema": "uschad_full_trial_j0_v1",
+    "fold": 2,
+    "subject_split": {
+      "fold": 2,
+      "train_subjects": [
+        1,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        14
+      ],
+      "validation_subjects": [
+        3,
+        9
+      ],
+      "test_subjects": [
+        2,
+        13
+      ]
+    },
+    "old_activity_ids_1based": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+    ],
+    "new_activity_ids_1based": [
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "label_regime": "J0-U",
+    "label_visibility": {
+      "J0-U": "no model-visible activity labels",
+      "J0-T": "seeded 4/1 labels per train subject/old activity; all validation-old labels available only for validation/checkpoint selection",
+      "outer_test_model_visible": false
+    },
+    "train_label_assignment": {
+      "method": "per_subject_per_old_activity_trial_stratified_v1",
+      "seed": 5,
+      "requested_labelled_fraction": 0.8,
+      "labelled_trial_count": 240,
+      "unlabelled_trial_count": 60,
+      "assignment_overlap": 0,
+      "strata": [
+        {
+          "subject_id": 1,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 1,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 1,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 1,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 1,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 1,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 4,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 5,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 6,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 7,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 8,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 10,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 11,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "unlabelled_trial_numbers": [
+            5
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 12,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 1,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 2,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            2
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 3,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            1
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 4,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 5,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            4,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            3
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        },
+        {
+          "subject_id": 14,
+          "physical_activity_id": 6,
+          "available_trial_count": 5,
+          "labelled_trial_numbers": [
+            1,
+            2,
+            3,
+            5
+          ],
+          "unlabelled_trial_numbers": [
+            4
+          ],
+          "known_anomaly_exclusion_shortfall": false
+        }
+      ]
+    },
+    "manifest_sha256": "a7cd24d9817c392700c112950dce9c11953bad422d327f54a5748c1f5bc87b2a",
+    "normalization": {
+      "method": "full_raw_sample_weighted_per_channel_zscore",
+      "mean": [
+        0.9480919241905212,
+        0.12005088478326797,
+        -0.1109497994184494,
+        -0.6694599390029907,
+        -0.25823238492012024,
+        -0.1790500432252884
+      ],
+      "std": [
+        0.5284162163734436,
+        0.37348783016204834,
+        0.328655481338501,
+        72.27300262451172,
+        37.44423294067383,
+        62.39139938354492
+      ],
+      "epsilon": 1e-06,
+      "sample_count": 1057400,
+      "trial_count": 300,
+      "fit_subject_ids": [
+        1,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        14
+      ],
+      "fit_activity_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "fit_trial_ids_sha256": "5a5d85fca31a9e95d9908220df343760f0b3b63d42fe06ed76eea0edfc389c6a"
+    },
+    "identity_sha256": "16647ec4d79822b4f45366f231035b49630271c932eb94a246fb5fd3cdb5e6d4",
+    "subject_sets_observed": {
+      "train": [
+        1,
+        4,
+        5,
+        6,
+        7,
+        8,
+        10,
+        11,
+        12,
+        14
+      ],
+      "validation": [
+        3,
+        9
+      ],
+      "test": [
+        2,
+        13
+      ]
+    },
+    "trial_id_overlap": {
+      "train_validation": [],
+      "train_test": [],
+      "validation_test": []
+    },
+    "trial_counts": {
+      "train_old": 300,
+      "train_old_labelled_assignment": 240,
+      "train_old_unlabelled_assignment": 60,
+      "train_model_visible_labels": 0,
+      "validation_old": 60,
+      "validation_model_visible_labels": 0,
+      "outer_test_all": 120,
+      "outer_test_model_visible_labels": 0
+    },
+    "sensor_access_during_construction": {
+      "normalization_train_old_trials_loaded": 300,
+      "validation_sensor_trials_loaded": 0,
+      "outer_test_sensor_trials_loaded": 0,
+      "outer_test_locked_until_checkpoint_selected": true
+    },
+    "full_trial_policy": "all original sensor samples; no crop/window tail drop",
+    "physical_label_source": "filename activity id; internal conflicts reported",
+    "runtime_sensor_access": {
+      "train": {
+        "partition": "train",
+        "sensor_trials_loaded": 300,
+        "outer_test_locked": false,
+        "outer_test_checkpoint_identity": null,
+        "outer_test_sensor_trials_loaded": 0
+      },
+      "validation": {
+        "partition": "validation",
+        "sensor_trials_loaded": 60,
+        "outer_test_locked": false,
+        "outer_test_checkpoint_identity": null,
+        "outer_test_sensor_trials_loaded": 0
+      },
+      "outer_test": {
+        "partition": "test",
+        "sensor_trials_loaded": 0,
+        "outer_test_locked": true,
+        "outer_test_checkpoint_identity": null,
+        "outer_test_sensor_trials_loaded": 0
+      }
+    }
+  },
+  "boundary_calibration_sha256": "2fde7d1a18f2facdd47df18dc762435c6af7535ad132ccf9abae1c47e41b97b8",
+  "command": [
+    "experiments/motion_primitive/train_one_stage.py",
+    "--data-root",
+    "/mnt/d/WorkDir/DataSet/USC-HAD",
+    "--output-dir",
+    "/mnt/d/workdir/HHR/_verification/one_stage_collapse_fix_fold2_seed5_20epoch_resnet1d_v9",
+    "--profile",
+    "J0-U",
+    "--fold",
+    "2",
+    "--seed",
+    "5",
+    "--epochs",
+    "20",
+    "--batch-size",
+    "8",
+    "--eval-batch-size",
+    "16",
+    "--num-workers",
+    "0",
+    "--device",
+    "cuda",
+    "--learning-rate",
+    "0.0003",
+    "--weight-decay",
+    "0.0001",
+    "--gradient-clip",
+    "5.0",
+    "--warmup-epochs",
+    "10",
+    "--early-stop-patience",
+    "0",
+    "--frame-size",
+    "128",
+    "--frame-stride",
+    "64",
+    "--local-encoder",
+    "resnet1d",
+    "--codebook-size",
+    "32",
+    "--codebook-init",
+    "kmeans++",
+    "--codebook-init-windows-per-trial",
+    "4",
+    "--codebook-init-n-init",
+    "10",
+    "--codebook-update",
+    "ema",
+    "--codebook-ema-decay",
+    "0.99",
+    "--trajectory-input-mode",
+    "primitive_only",
+    "--temperature-start",
+    "2.0",
+    "--temperature-end",
+    "0.25",
+    "--trajectory-mask-ratio",
+    "0.15",
+    "--labelled-fraction",
+    "0.8",
+    "--anomaly-policy",
+    "report",
+    "--cluster-restarts",
+    "5",
+    "--order-shuffles",
+    "3",
+    "--minimum-segment-windows",
+    "2",
+    "--minimum-hard-code-fraction",
+    "0.25",
+    "--minimum-hard-effective-code-fraction",
+    "0.2",
+    "--maximum-hard-code-share",
+    "0.5",
+    "--minimum-local-feature-effective-rank",
+    "4.0",
+    "--maximum-local-feature-centroid-norm",
+    "0.98",
+    "--minimum-assignment-margin",
+    "0.01",
+    "--checkpoint-selection",
+    "common_unsupervised",
+    "--deterministic",
+    "--no-use-gumbel-training"
+  ]
+}

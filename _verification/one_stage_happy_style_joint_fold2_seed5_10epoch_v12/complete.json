@@ -1,0 +1,18 @@
+{
+  "run_identity_sha256": "da9416873c2777f65fa56c2e742c31e88558c385e9bde4f2d78aa80926ee00a6",
+  "summary_sha256": "2a6872c93e3db07e09536446ae7029bc4a6109876c8150366aba3693be0e25e6",
+  "selected_checkpoint_sha256": "f05b00c58cfea8c23254567da79912197dbb8ff7f15c3a93c48e50bbdc82d391",
+  "artifact_sha256": {
+    "run_manifest.json": "ba10a78754d65c883652a8a1e3cc42cfd8b0fbcfce5c20ab454fcada68966592",
+    "boundary_calibration.json": "2c1e90aa804a095b6194599f2045df68935ab07ff10b2165d8ae5eb04a4f1a7e",
+    "codebook_initialization.json": "2f719febbd7e756551298adc9e499d304f016e42745cfde05f1ccfdc9c6355d1",
+    "history.jsonl": "82b7cb95ab3ec8772880659b4fa03a68cc14c9758b06fff9b05b96793c7b6c68",
+    "checkpoint_last.pt": "04b1bbafde294f0aaff8dd027e7f22d9ae2a3ba111a458b655ee3214dbb5637f",
+    "checkpoint_best.pt": "f05b00c58cfea8c23254567da79912197dbb8ff7f15c3a93c48e50bbdc82d391",
+    "outer_test_primitive_trajectories.jsonl": "2668817c65c129fa37fdbfc623b568ad21d926f0d39b836621c6f17f929191f5",
+    "cgcd_confusion_heatmap.png": "ce689990d32b49e1e54f18c3254e9e4511bfb7ae29dd9bb00f2a0c296b4c5514",
+    "activity_codebook_heatmap.png": "3ed96fc018d4156cc52e86840fd7466810bed8fbeb2b51ebd333ecc7bd1b3f27",
+    "fixed_trajectories_and_predictions.png": "96b332ad9b5fb32e699d372304237d42e56c7fa67fa343f44f33923308cb12a1",
+    "summary.json": "2a6872c93e3db07e09536446ae7029bc4a6109876c8150366aba3693be0e25e6"
+  }
+}

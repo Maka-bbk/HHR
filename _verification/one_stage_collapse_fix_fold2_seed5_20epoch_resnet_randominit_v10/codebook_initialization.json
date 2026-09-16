@@ -1,0 +1,7 @@
+{
+  "method": "random_ablation",
+  "outer_test_accessed": false,
+  "sample_count": 0,
+  "windows_per_trial": 0,
+  "n_init": 0
+}

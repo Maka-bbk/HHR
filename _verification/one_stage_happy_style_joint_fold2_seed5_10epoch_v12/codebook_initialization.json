@@ -1,0 +1,11 @@
+{
+  "method": "happy_style_random_learnable_normalized_prototypes",
+  "outer_test_accessed": false,
+  "sample_count": 0,
+  "windows_per_trial": 0,
+  "n_init": 0,
+  "encoder_pretraining_epochs": 0,
+  "joint_training_from_epoch_one": true,
+  "prototype_parameterization": "l2_normalized_learnable_directions",
+  "kmeans_used": false
+}

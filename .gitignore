@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.idea/
+.vscode/
+processed/
+results/
+logs/
+tmp/
+*.pt
+*.pth
+*.npz
+*.mat

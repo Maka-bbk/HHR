@@ -1,0 +1,437 @@
+{
+  "schema": "one_stage_motion_trajectory_run_v5",
+  "run_identity_sha256": "e7e30b8b59acdf6840c11060c3b53bf480e650e7a109da46969b7e0995d1c535",
+  "profile": "J0-U",
+  "fold": 2,
+  "seed": 5,
+  "trajectory_input_mode": "primitive_only",
+  "local_encoder": "resnet1d",
+  "codebook_init": "learnable",
+  "codebook_update": "gradient",
+  "codebook_ema_decay": 0.99,
+  "trajectory_assignment_forward": "hard_one_hot_straight_through_deterministic",
+  "primary_motion_primitive_cgcd_arm": true,
+  "encoder_pretraining_epochs": 0,
+  "prototype_parameterization": "l2_normalized_learnable_directions",
+  "checkpoint_selection": "common_unsupervised",
+  "stopped_early": false,
+  "selected_epoch": 8,
+  "selected_checkpoint": "/mnt/d/WorkDir/HHR/_verification/one_stage_happy_style_joint_fold2_seed5_10epoch_v11/checkpoint_best.pt",
+  "selected_checkpoint_sha256": "f131a8dc00383c58943cd9a9c0fcd35090d0af145a37185936cd3599e7ffbea0",
+  "selection_validation": {
+    "loss": 7.902021153767904,
+    "unsupervised_loss": 7.902021153767904,
+    "loss_raw_boundary": 0.4461111823717753,
+    "loss_vq_commitment": 0.006057137375076612,
+    "loss_vq_codebook": 0.006057137375076612,
+    "loss_content_reconstruction": 0.011145442724227905,
+    "loss_stable_next_content": 0.01259215474128723,
+    "loss_feature_noncollapse": 0.6284880042076111,
+    "loss_utilization_floor": 0.0002932792529463768,
+    "loss_assignment_confidence": 0.05698856090505918,
+    "loss_codebook_diversity": 0.03209824487566948,
+    "loss_boundary_sparsity": 0.04067911937988053,
+    "loss_minimum_duration": 0.4891221920649211,
+    "loss_state_reconstruction": 2.4675063133239745,
+    "loss_masked_token_prediction": 3.938961935043335,
+    "loss_masked_state_reconstruction": 1.3667431672414143,
+    "loss_trajectory_ce": 0.0,
+    "normalized_codebook_entropy": 0.5134320855140686,
+    "normalized_soft_codebook_entropy": 0.7491484681765238,
+    "normalized_assignment_entropy": 0.7387089649836223,
+    "feature_noncollapse_variance": 0.5583578824996949,
+    "feature_noncollapse_covariance": 0.0701301246881485,
+    "feature_noncollapse_mean_std": 0.44164213140805564,
+    "codebook_pair_cosine_mean": 0.27997538447380066,
+    "codebook_pair_cosine_max": 0.7276264429092407,
+    "effective_code_count": 5.965778446197509,
+    "soft_effective_code_count": 13.415304883321125,
+    "hard_occupied_codes": 8,
+    "hard_occupancy_fraction": 0.25,
+    "hard_effective_code_count": 6.483159546053313,
+    "hard_effective_code_fraction": 0.20259873581416604,
+    "hard_token_entropy": 1.869207975801086,
+    "hard_max_code_share": 0.25622775800711745,
+    "mean_assignment_confidence": 0.15418409481025958,
+    "mean_assignment_margin": 0.02532231963260601,
+    "local_feature_sample_count": 240,
+    "local_feature_centroid_norm": 0.8959617492026953,
+    "local_feature_mean_dimension_std": 0.05550059051495751,
+    "local_feature_total_variance": 0.19807786460822221,
+    "local_feature_effective_rank": 35.414167973421726,
+    "codebook_pair_cosine_mean_hard_diagnostic": 0.2799753941134493,
+    "codebook_pair_cosine_max_hard_diagnostic": 0.7276264741944392,
+    "trial_count": 60,
+    "checkpoint_eligible": true,
+    "checkpoint_rejection_reasons": []
+  },
+  "evaluation": {
+    "cgcd_metrics": {
+      "all_accuracy": 0.13333333333333333,
+      "old_accuracy": 0.13333333333333333,
+      "new_accuracy": 0.13333333333333333,
+      "h_score": 0.13333333333333333,
+      "macro_f1": 0.12217869087434303,
+      "per_class_recall": {
+        "Walking Forward": 0.1,
+        "Walking Left": 0.3,
+        "Walking Right": 0.0,
+        "Walking Upstairs": 0.1,
+        "Walking Downstairs": 0.3,
+        "Running Forward": 0.0,
+        "Jumping Up": 0.3,
+        "Sitting": 0.0,
+        "Standing": 0.0,
+        "Sleeping": 0.0,
+        "Elevator Up": 0.3,
+        "Elevator Down": 0.2
+      },
+      "novel_cluster_mapping": {
+        "6": 11,
+        "7": 6,
+        "8": 7,
+        "9": 8,
+        "10": 9,
+        "11": 10
+      },
+      "confusion_matrix": [
+        [
+          1,
+          0,
+          3,
+          0,
+          0,
+          0,
+          0,
+          2,
+          1,
+          1,
+          2,
+          0
+        ],
+        [
+          0,
+          3,
+          0,
+          0,
+          0,
+          0,
+          0,
+          2,
+          2,
+          1,
+          2,
+          0
+        ],
+        [
+          0,
+          2,
+          0,
+          0,
+          1,
+          0,
+          0,
+          3,
+          1,
+          2,
+          1,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          2,
+          2,
+          2,
+          0,
+          0,
+          0,
+          2,
+          1
+        ],
+        [
+          1,
+          0,
+          1,
+          1,
+          3,
+          1,
+          2,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          2,
+          0,
+          4,
+          0,
+          0,
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          0,
+          0,
+          4,
+          2,
+          0,
+          3,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          5,
+          1,
+          2,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          6,
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          2,
+          6,
+          1,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          2,
+          1,
+          1,
+          1,
+          0,
+          0,
+          0,
+          3,
+          2
+        ],
+        [
+          0,
+          0,
+          0,
+          2,
+          1,
+          0,
+          3,
+          0,
+          0,
+          0,
+          2,
+          2
+        ]
+      ]
+    },
+    "semi_supervised_kmeans": {
+      "transductive": true,
+      "evaluation_labels_used_during_fit": false,
+      "old_train_labels_used_as_fixed_anchors": true,
+      "oracle_total_class_count": 12,
+      "inertia": 29.29796291259139,
+      "iterations": 6,
+      "restart": 0
+    },
+    "direct_old_trajectory_classifier": {
+      "outer_test_old_accuracy": 0.16666666666666666,
+      "outer_test_old_macro_f1": 0.04830917874396135,
+      "new_class_prediction_supported": false
+    },
+    "order_shuffle_control": {
+      "repeat_count": 1,
+      "shuffle_unit": "predicted primitive run blocks; within-run frames retained",
+      "relation_policy": "identity and shuffled arms both recompute transition/duration from the presented assignment order and zero learned-boundary ingress",
+      "identity_relation_control_metrics": {
+        "all_accuracy": 0.15,
+        "old_accuracy": 0.13333333333333333,
+        "new_accuracy": 0.16666666666666666,
+        "h_score": 0.14814814814814814,
+        "macro_f1": 0.14099770437489736
+      },
+      "main_minus_identity_relation_control": {
+        "all_accuracy": -0.016666666666666663,
+        "old_accuracy": 0.0,
+        "new_accuracy": -0.033333333333333326,
+        "h_score": -0.014814814814814808,
+        "macro_f1": -0.01881901350055433
+      },
+      "mean_shuffled_metrics": {
+        "all_accuracy": 0.15833333333333333,
+        "old_accuracy": 0.1,
+        "new_accuracy": 0.21666666666666667,
+        "h_score": 0.1368421052631579,
+        "macro_f1": 0.1434354968892136
+      },
+      "identity_control_minus_shuffled": {
+        "all_accuracy": -0.008333333333333331,
+        "old_accuracy": 0.033333333333333326,
+        "new_accuracy": -0.05000000000000002,
+        "h_score": 0.011306042884990236,
+        "macro_f1": -0.0024377925143162227
+      },
+      "direct_old_accuracy_standard": 0.16666666666666666,
+      "direct_old_accuracy_identity_relation_control": 0.13333333333333333,
+      "direct_old_accuracy_shuffled_mean": 0.16666666666666666,
+      "direct_old_accuracy_drop": -0.033333333333333326
+    },
+    "codebook_diagnostics": {
+      "occupied_codes": 9,
+      "occupancy_fraction": 0.28125,
+      "effective_code_count": 6.527216387980829,
+      "token_entropy": 1.8759805718507179,
+      "token_subject_nmi": 0.005963178838259242
+    },
+    "primitive_segment_start_repeatability": {
+      "event_definition": "primitive-run start caused by a hard-token change or a learned boundary; this is not a pure boundary-head metric",
+      "same_activity_segment_start_histogram_cosine": 0.8945060554657432,
+      "different_activity_segment_start_histogram_cosine": 0.8943991033594108,
+      "same_minus_different_margin": 0.00010695210633249186
+    },
+    "primitive_segment_counts": {
+      "mean": 48.483333333333334,
+      "median": 32.0,
+      "minimum": 14,
+      "maximum": 156,
+      "by_original_activity": {
+        "Walking Forward": {
+          "mean": 65.4,
+          "minimum": 25,
+          "maximum": 117
+        },
+        "Walking Left": {
+          "mean": 31.5,
+          "minimum": 24,
+          "maximum": 42
+        },
+        "Walking Right": {
+          "mean": 29.8,
+          "minimum": 24,
+          "maximum": 41
+        },
+        "Walking Upstairs": {
+          "mean": 48.0,
+          "minimum": 22,
+          "maximum": 79
+        },
+        "Walking Downstairs": {
+          "mean": 49.5,
+          "minimum": 27,
+          "maximum": 74
+        },
+        "Running Forward": {
+          "mean": 47.6,
+          "minimum": 17,
+          "maximum": 76
+        },
+        "Jumping Up": {
+          "mean": 20.9,
+          "minimum": 14,
+          "maximum": 25
+        },
+        "Sitting": {
+          "mean": 54.0,
+          "minimum": 30,
+          "maximum": 78
+        },
+        "Standing": {
+          "mean": 53.3,
+          "minimum": 22,
+          "maximum": 78
+        },
+        "Sleeping": {
+          "mean": 116.8,
+          "minimum": 78,
+          "maximum": 156
+        },
+        "Elevator Up": {
+          "mean": 32.5,
+          "minimum": 26,
+          "maximum": 37
+        },
+        "Elevator Down": {
+          "mean": 32.5,
+          "minimum": 24,
+          "maximum": 51
+        }
+      }
+    },
+    "trajectory_export": "/mnt/d/WorkDir/HHR/_verification/one_stage_happy_style_joint_fold2_seed5_10epoch_v11/outer_test_primitive_trajectories.jsonl",
+    "plots": {
+      "confusion": "/mnt/d/WorkDir/HHR/_verification/one_stage_happy_style_joint_fold2_seed5_10epoch_v11/cgcd_confusion_heatmap.png",
+      "activity_codebook": "/mnt/d/WorkDir/HHR/_verification/one_stage_happy_style_joint_fold2_seed5_10epoch_v11/activity_codebook_heatmap.png",
+      "representative_trajectories": "/mnt/d/WorkDir/HHR/_verification/one_stage_happy_style_joint_fold2_seed5_10epoch_v11/fixed_trajectories_and_predictions.png"
+    }
+  },
+  "runtime_sensor_access": {
+    "train": {
+      "partition": "train",
+      "sensor_trials_loaded": 3900,
+      "outer_test_locked": false,
+      "outer_test_checkpoint_identity": null,
+      "outer_test_sensor_trials_loaded": 0
+    },
+    "validation": {
+      "partition": "validation",
+      "sensor_trials_loaded": 660,
+      "outer_test_locked": false,
+      "outer_test_checkpoint_identity": null,
+      "outer_test_sensor_trials_loaded": 0
+    },
+    "outer_test": {
+      "partition": "test",
+      "sensor_trials_loaded": 360,
+      "outer_test_locked": false,
+      "outer_test_checkpoint_identity": "f131a8dc00383c58943cd9a9c0fcd35090d0af145a37185936cd3599e7ffbea0",
+      "outer_test_sensor_trials_loaded": 360
+    }
+  },
+  "interpretation_limits": [
+    "Outer-test CGCD clustering is transductive and uses an oracle total class count of 12.",
+    "Novel-cluster Hungarian naming uses ground truth only after clustering for scoring.",
+    "J0-U is label-free representation training, not a deployable label-free classifier.",
+    "Online adaptive codebook expansion is not part of J0 and remains a later experiment.",
+    "primitive_only excludes the continuous raw-state projection from the trajectory classifier. Other trajectory input modes are attribution controls."
+  ]
+}

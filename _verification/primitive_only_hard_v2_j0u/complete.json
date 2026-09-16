@@ -1,0 +1,17 @@
+{
+  "run_identity_sha256": "14646bc8c3c7442a67db39527ab1500b321c3793d25651557bd05ff15044d808",
+  "summary_sha256": "c53f40be0ca44824bad269cf8d8e7132f6429301ff05d9c50d192504a72bc46c",
+  "selected_checkpoint_sha256": "3625c49bf9276ef6048638e435233db4b8016070edaef4af9d4a773e1a0d1858",
+  "artifact_sha256": {
+    "run_manifest.json": "a2ed08277361ab71e532c36e1a9646a4f8f20ccb014eb0e5fe0149bf0a31b917",
+    "boundary_calibration.json": "22d6435976060e8f2ac8e7e8c25276aee23e18bb47086d51380aa5cb8a2eb9e4",
+    "history.jsonl": "58e40526d9272bcda8347cb08019789fad17970fb47138f01767436a87d39783",
+    "checkpoint_last.pt": "0d528a4c2a385c78a8c2b5fa535acdc63a02f9534366bbf600672e4864494237",
+    "checkpoint_best.pt": "3625c49bf9276ef6048638e435233db4b8016070edaef4af9d4a773e1a0d1858",
+    "outer_test_primitive_trajectories.jsonl": "20ab174b69f1289ac7056c7f02734488c5212815e4494e007d3d4cc6255cc806",
+    "cgcd_confusion_heatmap.png": "f1516e934023f612589178d92a703cb9939e0fd59fbf84104b9d2166e5d6c37d",
+    "activity_codebook_heatmap.png": "fc8e19420771dff68b5a94185b062bb5871e2987766ab3f4dcd972649cfeb9dd",
+    "fixed_trajectories_and_predictions.png": "508d1b1c1e1b3b4c4f4bb889c66b5111d2fbbe7ae2fd655c2849b2f4898e726e",
+    "summary.json": "c53f40be0ca44824bad269cf8d8e7132f6429301ff05d9c50d192504a72bc46c"
+  }
+}
