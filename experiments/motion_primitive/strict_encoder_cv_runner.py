@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -37,8 +38,8 @@ from experiments.motion_primitive import pretrain_window_encoder, train_motion_e
 
 
 CV_SCHEMA = "hhr_frozen_a2_encoder_cv_v2"
-WINDOW_SCHEMA = "hhr_har_window_pretrain_v1"
-A2_COMPLETE_SCHEMA = "hhr_motion_encoder_training_complete_v1"
+WINDOW_SCHEMA = "hhr_har_window_pretrain_v2"
+A2_COMPLETE_SCHEMA = train_motion_encoder.COMPLETE_SCHEMA
 _MEMBER_PATTERN = re.compile(r"fold_(\d{2})_seed_(\d+)")
 
 FORMAL_W256_PROTOCOL = "formal_w256_7fold4seed"
@@ -182,6 +183,8 @@ def _window_command(args: argparse.Namespace, fold: int, seed: int, output: Path
         "--num-workers", str(int(args.num_workers)),
         "--smoke-max-windows", str(int(args.smoke_max_windows)),
         "--device", str(args.device),
+        "--deterministic",
+        "--selection-policy", str(args.window_selection_policy),
     ]
     if bool(args.resume):
         command.append("--resume")
@@ -291,6 +294,26 @@ def _validate_window_member(
     checkpoint_payload = pretrain_window_encoder._load_checkpoint(checkpoint)
     if checkpoint_payload.get("run_identity") != dict(expected_identity):
         raise RuntimeError("Window-pretrain checkpoint records another run identity.")
+    pretrain_window_encoder._validate_checkpoint_state_hashes(checkpoint_payload)
+    runtime = complete.get("determinism")
+    if not isinstance(runtime, Mapping):
+        raise RuntimeError("Window-pretrain completion lacks deterministic runtime.")
+    pretrain_window_encoder._validate_determinism_record(
+        runtime, require_python_hash_seed=True
+    )
+    checkpoint_runtime = checkpoint_payload.get("determinism")
+    if checkpoint_runtime != runtime:
+        raise RuntimeError(
+            "Window-pretrain checkpoint/completion deterministic runtime differs."
+        )
+    if checkpoint_payload.get("model_state_dict_sha256") != complete.get(
+        "model_state_dict_sha256"
+    ):
+        raise RuntimeError("Window-pretrain selected tensor-state SHA256 mismatch.")
+    if checkpoint_payload.get("backbone_state_dict_sha256") != complete.get(
+        "backbone_state_dict_sha256"
+    ):
+        raise RuntimeError("Window-pretrain selected backbone SHA256 mismatch.")
     return complete
 
 
@@ -331,8 +354,25 @@ def _validate_a2_member(
     if not final_path.is_file() or sha256_file(final_path) != complete.get("final_checkpoint_sha256"):
         raise RuntimeError("A2 final checkpoint is absent or has changed.")
     checkpoint_payload = train_motion_encoder._load_checkpoint(final_path)
+    train_motion_encoder._validate_output_checkpoint(checkpoint_payload)
     if checkpoint_payload.get("run_identity") != dict(expected_identity):
         raise RuntimeError("A2 checkpoint records another run identity.")
+    runtime = complete.get("determinism")
+    if not isinstance(runtime, Mapping):
+        raise RuntimeError("A2 completion lacks deterministic runtime metadata.")
+    train_motion_encoder._validate_determinism_record(
+        dict(runtime), require_python_hash_seed=True
+    )
+    if checkpoint_payload.get("determinism") != runtime:
+        raise RuntimeError("A2 checkpoint/completion deterministic runtime differs.")
+    if checkpoint_payload.get("model_state_dict_sha256") != complete.get(
+        "final_model_state_dict_sha256"
+    ):
+        raise RuntimeError("A2 final model tensor-state SHA256 mismatch.")
+    if checkpoint_payload.get("ema_teacher_state_dict_sha256") != complete.get(
+        "final_ema_teacher_state_dict_sha256"
+    ):
+        raise RuntimeError("A2 final EMA-teacher tensor-state SHA256 mismatch.")
     return complete
 
 
@@ -372,7 +412,19 @@ def _ensure_member(
         print(f"[resume] preserved interrupted {stage} member at {archived}", flush=True)
     print("[command] " + " ".join(f'"{item}"' for item in command), flush=True)
     try:
-        subprocess.run(list(command), cwd=PROJECT_ROOT, check=True)
+        environment = os.environ.copy()
+        environment.update({
+            "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+            "PYTHONHASHSEED": "0",
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+        })
+        subprocess.run(
+            list(command), cwd=PROJECT_ROOT, check=True, env=environment
+        )
     except subprocess.CalledProcessError as error:
         raise RuntimeError(
             f"{stage} member {target.name} failed with exit code {error.returncode}."
@@ -420,6 +472,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "weight_decay": float(args.window_weight_decay),
             "weak_scale_std": float(args.window_weak_scale_std),
             "strong_scale_std": float(args.window_strong_scale_std),
+            "deterministic": True,
+            "selection_policy": str(args.window_selection_policy),
             "smoke_max_windows": int(args.smoke_max_windows),
         },
         "a2": {
@@ -461,7 +515,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             window_command = _window_command(args, fold, seed, window_dir)
             commands.append(window_command)
             if bool(args.dry_run):
-                source = window_dir / "model_best.pt"
+                source = window_dir / (
+                    "model_best.pt"
+                    if str(args.window_selection_policy) == "best_val_macro_f1"
+                    else "model_last.pt"
+                )
                 commands.append(_a2_command(args, fold, seed, source, member_directory(a2_root, fold, seed)))
                 continue
             window_arguments = _child_arguments(
@@ -513,10 +571,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "seed": int(seed),
                 "window_best_epoch": int(window_complete["best_epoch"]),
                 "window_validation_macro_f1": float(window_complete["best_validation_macro_f1"]),
+                "window_selected_epoch": int(window_complete["selected_epoch"]),
+                "window_selected_validation_macro_f1": float(
+                    window_complete["selected_validation_macro_f1"]
+                ),
+                "window_model_state_dict_sha256": str(
+                    window_complete["model_state_dict_sha256"]
+                ),
+                "window_backbone_state_dict_sha256": str(
+                    window_complete["backbone_state_dict_sha256"]
+                ),
                 "window_checkpoint_sha256": str(window_complete["checkpoint_sha256"]),
                 "a2_selected_epoch": int(a2_complete["selected_epoch"]),
                 "a2_validation_total_loss": float(a2_complete["selected_validation_total_loss"]),
                 "a2_checkpoint_sha256": str(a2_complete["final_checkpoint_sha256"]),
+                "a2_model_state_dict_sha256": str(
+                    a2_complete["final_model_state_dict_sha256"]
+                ),
+                "a2_ema_teacher_state_dict_sha256": str(
+                    a2_complete["final_ema_teacher_state_dict_sha256"]
+                ),
                 "smoke_test": bool(window_complete.get("smoke_test") or a2_complete.get("smoke_test")),
             })
             write_csv(root / "encoder_runs.csv", rows)
@@ -584,6 +658,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--window-weight-decay", type=float, default=5e-4)
     parser.add_argument("--window-weak-scale-std", type=float, default=0.1)
     parser.add_argument("--window-strong-scale-std", type=float, default=0.2)
+    parser.add_argument(
+        "--window-selection-policy",
+        choices=("best_val_macro_f1", "final_epoch"),
+        default="best_val_macro_f1",
+    )
     parser.add_argument("--a2-epochs", type=int, default=30)
     parser.add_argument("--a2-trial-batch-size", type=int, default=8)
     parser.add_argument("--a2-source-encode-batch-size", type=int, default=512)

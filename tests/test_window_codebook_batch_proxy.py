@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import ast
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 
 import numpy as np
+import torch
 
-from experiments.motion_primitive import pretrain_window_encoder
+from experiments.motion_primitive import pretrain_window_encoder, train_motion_encoder
 from experiments.motion_primitive import run_window_codebook_batch_proxy_cv as batch_cv
 from experiments.motion_primitive import run_trajectory_descriptor_ablation_cv as descriptor_cv
 from experiments.motion_primitive import strict_protocol
@@ -36,6 +40,7 @@ from experiments.motion_primitive.frozen_e0_state import (
     WindowTrial as RegisteredWindowTrial,
     fit_e0_codebook as fit_registered_e0_codebook,
 )
+from experiments.motion_primitive.strict_artifacts import configure_deterministic_runtime
 from experiments.motion_primitive.strict_protocol import SensorTrial
 from experiments.motion_primitive.strict_cv_common import canonical_hash
 
@@ -170,6 +175,9 @@ class ExperimentGridContractTests(unittest.TestCase):
         self.assertEqual(cv_args.folds, "1,2,3")
         self.assertEqual(cv_args.seeds, "0,5")
         self.assertEqual(cv_args.arms, batch_cv.DEFAULT_ARMS)
+        self.assertEqual(cv_args.window_selection_policy, "best_val_macro_f1")
+        self.assertTrue(window_args.deterministic)
+        self.assertEqual(window_args.selection_policy, "best_val_macro_f1")
         self.assertEqual(cv_args.descriptor_profile, LEGACY_DESCRIPTOR_PROFILE)
         self.assertEqual(batch_cv.MEMBER_SCHEMA, batch_member.SCHEMA)
 
@@ -555,6 +563,18 @@ class ExperimentGridContractTests(unittest.TestCase):
             for command in commands:
                 script = Path(command[1]).name
                 command_counts[script] = command_counts.get(script, 0) + 1
+                if script == "pretrain_window_encoder.py":
+                    self.assertIn("--deterministic", command)
+                    self.assertEqual(
+                        command[command.index("--selection-policy") + 1],
+                        "best_val_macro_f1",
+                    )
+                elif script == "train_motion_encoder.py":
+                    self.assertIn("--deterministic", command)
+                    self.assertEqual(
+                        command[command.index("--selection-policy") + 1],
+                        "final_epoch",
+                    )
 
             self.assertEqual(result["member_count"], 18)
             self.assertEqual(len(commands), 44)
@@ -567,6 +587,221 @@ class ExperimentGridContractTests(unittest.TestCase):
                     "window_codebook_batch_proxy.py": 18,
                 },
             )
+
+    def test_batch_runner_overrides_conflicting_child_reproducibility_environment(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_run(*_args, **kwargs):
+            captured.update(kwargs["env"])
+            return subprocess.CompletedProcess(args=["python"], returncode=0)
+
+        with mock.patch.dict(
+            os.environ,
+            {"CUBLAS_WORKSPACE_CONFIG": "conflicting", "PYTHONHASHSEED": "123"},
+            clear=False,
+        ), mock.patch.object(batch_cv.subprocess, "run", side_effect=fake_run):
+            batch_cv._run_command(["python", "child.py"], stage="probe")
+
+        self.assertEqual(captured["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+        self.assertEqual(captured["PYTHONHASHSEED"], "0")
+        for name in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+        ):
+            self.assertEqual(captured[name], "1")
+
+    def test_descriptor_runner_pins_child_blas_and_hash_environment(self) -> None:
+        captured: dict[str, str] = {}
+
+        def fake_run(*_args, **kwargs):
+            captured.update(kwargs["env"])
+            return subprocess.CompletedProcess(args=["python"], returncode=0)
+
+        with mock.patch.object(
+            descriptor_cv.subprocess, "run", side_effect=fake_run
+        ):
+            descriptor_cv._run_command(["python", "child.py"], stage="probe")
+
+        self.assertEqual(captured["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+        self.assertEqual(captured["PYTHONHASHSEED"], "0")
+        for name in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+        ):
+            self.assertEqual(captured[name], "1")
+
+    def test_frozen_runtime_enables_strict_torch_and_single_thread_environment(self) -> None:
+        runtime = configure_deterministic_runtime(seed=19)
+        self.assertTrue(runtime["torch_deterministic_algorithms"])
+        self.assertTrue(runtime["cudnn_deterministic"])
+        self.assertFalse(runtime["cudnn_benchmark"])
+        self.assertTrue(runtime["cudnn_allow_tf32"])
+        self.assertFalse(runtime["cuda_matmul_allow_tf32"])
+        self.assertEqual(runtime["float32_matmul_precision"], "highest")
+        self.assertEqual(runtime["environment"]["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+        for name in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+        ):
+            self.assertEqual(runtime["environment"][name], "1")
+
+    def test_batch_a2_validator_requires_runtime_and_tensor_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            checkpoint = output / "motion_encoder_final.pt"
+            runtime = {
+                "enabled": True,
+                "torch_deterministic_algorithms": True,
+                "cudnn_benchmark": False,
+                "cublas_workspace_config": ":4096:8",
+                "python_hash_seed": "0",
+                "cuda_device_name": None,
+                "blas_thread_environment": {
+                    "OMP_NUM_THREADS": "1",
+                    "MKL_NUM_THREADS": "1",
+                    "OPENBLAS_NUM_THREADS": "1",
+                    "NUMEXPR_NUM_THREADS": "1",
+                    "VECLIB_MAXIMUM_THREADS": "1",
+                },
+            }
+            model_sha = "m" * 64
+            teacher_sha = "t" * 64
+            torch.save({
+                "determinism": runtime,
+                "model_state_dict_sha256": model_sha,
+                "ema_teacher_state_dict_sha256": teacher_sha,
+            }, checkpoint)
+            complete = {
+                "schema": train_motion_encoder.COMPLETE_SCHEMA,
+                "fold": 1,
+                "seed": 0,
+                "npz_sha256": "n" * 64,
+                "source_checkpoint_sha256": "s" * 64,
+                "ablation_profile": "A2",
+                "selection_policy": "final_epoch",
+                "final_checkpoint_sha256": strict_protocol.sha256_file(checkpoint),
+                "final_model_state_dict_sha256": model_sha,
+                "final_ema_teacher_state_dict_sha256": teacher_sha,
+                "determinism": runtime,
+                "complete": True,
+            }
+            (output / "complete.json").write_text(
+                json.dumps(complete), encoding="utf-8"
+            )
+            with mock.patch.object(
+                train_motion_encoder, "_validate_output_checkpoint"
+            ):
+                self.assertEqual(
+                    batch_cv._validated_a2_checkpoint(
+                        output,
+                        fold=1,
+                        seed=0,
+                        npz_sha256="n" * 64,
+                        source_checkpoint_sha256="s" * 64,
+                    ),
+                    checkpoint,
+                )
+                complete["final_model_state_dict_sha256"] = "x" * 64
+                (output / "complete.json").write_text(
+                    json.dumps(complete), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(RuntimeError, "model tensor-state"):
+                    batch_cv._validated_a2_checkpoint(
+                        output,
+                        fold=1,
+                        seed=0,
+                        npz_sha256="n" * 64,
+                        source_checkpoint_sha256="s" * 64,
+                    )
+
+    def test_batch_window_validator_binds_selected_tensor_and_backbone_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            npz_sha256 = "n" * 64
+            arm = batch_cv.parse_arms(batch_cv.DEFAULT_ARMS)[0]
+            identity = {
+                "npz_sha256": npz_sha256,
+                "arguments": {
+                    "window_size": int(arm.window_size),
+                    "window_stride": int(arm.window_stride),
+                    "fold": 1,
+                    "seed": 0,
+                    "deterministic": True,
+                    "selection_policy": "best_val_macro_f1",
+                },
+            }
+            state = {"0.weight": torch.tensor([1.0, 2.0], dtype=torch.float32)}
+            model_sha = pretrain_window_encoder.motion_state_dict_sha256(state)
+            backbone_sha = pretrain_window_encoder._backbone_state_dict_sha256(state)
+            runtime = {
+                "enabled": True,
+                "torch_deterministic_algorithms": True,
+                "cudnn_benchmark": False,
+                "cublas_workspace_config": ":4096:8",
+                "python_hash_seed": "0",
+                "cuda_device_name": None,
+            }
+            checkpoint = output / "model_best.pt"
+            torch.save(
+                {
+                    "run_identity": identity,
+                    "model": state,
+                    "model_state_dict": state,
+                    "model_state_dict_sha256": model_sha,
+                    "backbone_state_dict_sha256": backbone_sha,
+                    "determinism": runtime,
+                },
+                checkpoint,
+            )
+            complete = {
+                "schema": batch_cv.WINDOW_SCHEMA,
+                "complete": True,
+                "fold": 1,
+                "seed": 0,
+                "identity": identity,
+                "checkpoint": checkpoint.name,
+                "checkpoint_sha256": batch_cv.sha256_file(checkpoint),
+                "model_state_dict_sha256": model_sha,
+                "backbone_state_dict_sha256": backbone_sha,
+                "determinism": runtime,
+            }
+            (output / "complete.json").write_text(
+                json.dumps(complete), encoding="utf-8"
+            )
+            self.assertEqual(
+                batch_cv._validated_window_checkpoint(
+                    output,
+                    arm=arm,
+                    fold=1,
+                    seed=0,
+                    npz_sha256=npz_sha256,
+                    selection_policy="best_val_macro_f1",
+                ),
+                checkpoint,
+            )
+
+            complete["backbone_state_dict_sha256"] = "0" * 64
+            (output / "complete.json").write_text(
+                json.dumps(complete), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(RuntimeError, "backbone SHA256 mismatch"):
+                batch_cv._validated_window_checkpoint(
+                    output,
+                    arm=arm,
+                    fold=1,
+                    seed=0,
+                    npz_sha256=npz_sha256,
+                    selection_policy="best_val_macro_f1",
+                )
 
     def test_descriptor_summary_rejects_any_cross_profile_codebook_drift(self) -> None:
         profiles = descriptor_cv.profiles_for_part(

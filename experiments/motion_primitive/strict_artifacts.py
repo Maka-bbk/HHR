@@ -5,8 +5,21 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
+import random
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+
+_DETERMINISTIC_ENVIRONMENT = {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+}
+for _environment_name, _environment_value in _DETERMINISTIC_ENVIRONMENT.items():
+    os.environ[_environment_name] = _environment_value
 
 import numpy as np
 import torch
@@ -33,6 +46,42 @@ A2_REQUIRED_WEIGHTS = {
     "trial_auxiliary": 0.1,
     "cross_subject": 0.0,
 }
+
+
+def configure_deterministic_runtime(seed: int | None = None) -> dict[str, Any]:
+    """Apply the common strict runtime used by frozen encoding and clustering."""
+
+    for name, value in _DETERMINISTIC_ENVIRONMENT.items():
+        os.environ[name] = value
+    if seed is not None:
+        random.seed(int(seed))
+        np.random.seed(int(seed))
+        torch.manual_seed(int(seed))
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(int(seed))
+    torch.use_deterministic_algorithms(True)
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        # TF32 affects numeric precision, not deterministic kernel selection.
+        # Keep the historical cuDNN route while freezing all stochastic state.
+        torch.backends.cudnn.allow_tf32 = True
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = False
+    torch.set_float32_matmul_precision("highest")
+    return {
+        "enabled": True,
+        "seed": None if seed is None else int(seed),
+        "torch_deterministic_algorithms": bool(
+            torch.are_deterministic_algorithms_enabled()
+        ),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
+        "cuda_matmul_allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "float32_matmul_precision": str(torch.get_float32_matmul_precision()),
+        "environment": dict(_DETERMINISTIC_ENVIRONMENT),
+    }
 
 
 def jsonable(value: Any) -> Any:
@@ -234,6 +283,7 @@ def encode_sensor_trials(
 
     if int(batch_size) < 1:
         raise ValueError("Encoding batch size must be positive.")
+    configure_deterministic_runtime(seed=None)
     ordered = list(trials)
     if not ordered:
         return []
@@ -399,6 +449,7 @@ def representation_sha256(
 
 __all__ = [
     "A2_REQUIRED_WEIGHTS",
+    "configure_deterministic_runtime",
     "encode_sensor_trials",
     "jsonable",
     "load_descriptor_transform",

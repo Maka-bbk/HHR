@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import random
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import numpy as np
 import torch
 
 from experiments.motion_primitive import pretrain_window_encoder as window_stage
@@ -49,14 +53,184 @@ class EncoderCommandContractTests(unittest.TestCase):
             for command in commands:
                 script = Path(command[1]).name
                 if script == "pretrain_window_encoder.py":
-                    window_stage.build_parser().parse_args(command[2:])
+                    child = window_stage.build_parser().parse_args(command[2:])
+                    self.assertTrue(child.deterministic)
+                    self.assertEqual(child.selection_policy, "best_val_macro_f1")
                     window_count += 1
                 elif script == "train_motion_encoder.py":
-                    a2_stage.build_parser().parse_args(command[2:])
+                    child = a2_stage.build_parser().parse_args(command[2:])
+                    self.assertTrue(child.deterministic)
+                    self.assertEqual(child.selection_policy, "final_epoch")
                     a2_count += 1
                 else:
                     self.fail(f"Unexpected encoder child script: {script}")
             self.assertEqual((window_count, a2_count), (28, 28))
+
+    def test_warmup_and_runner_defaults_select_best_old_class_validation_checkpoint(self) -> None:
+        warmup = window_stage.build_parser().parse_args([
+            "--npz-path", "windows.npz",
+            "--output-dir", "out",
+            "--fold", "1",
+            "--seed", "0",
+        ])
+        runner = encoder_cv.build_parser().parse_args([
+            "--npz-path", "windows.npz",
+            "--output-root", "out",
+        ])
+        self.assertTrue(warmup.deterministic)
+        self.assertEqual(warmup.selection_policy, "best_val_macro_f1")
+        self.assertEqual(runner.window_selection_policy, "best_val_macro_f1")
+
+    def test_child_process_environment_overrides_conflicting_reproducibility_values(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            captured: dict[str, str] = {}
+
+            def fake_run(*_args, **kwargs):
+                captured.update(kwargs["env"])
+                return subprocess.CompletedProcess(args=["python"], returncode=0)
+
+            with mock.patch.dict(
+                os.environ,
+                {"CUBLAS_WORKSPACE_CONFIG": "conflicting", "PYTHONHASHSEED": "123"},
+                clear=False,
+            ), mock.patch.object(encoder_cv.subprocess, "run", side_effect=fake_run):
+                result = encoder_cv._ensure_member(
+                    args=argparse.Namespace(resume=False),
+                    stage="probe",
+                    target=root / "member",
+                    validator=lambda: {"complete": True},
+                    command=[sys.executable, "child.py"],
+                    root=root,
+                )
+
+            self.assertEqual(result, {"complete": True})
+            self.assertEqual(captured["CUBLAS_WORKSPACE_CONFIG"], ":4096:8")
+            self.assertEqual(captured["PYTHONHASHSEED"], "0")
+            for name in (
+                "OMP_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+            ):
+                self.assertEqual(captured[name], "1")
+
+
+class WarmupDeterminismContractTests(unittest.TestCase):
+    def test_seed_setup_is_repeatable_and_enables_strict_torch_runtime(self) -> None:
+        old_workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        old_deterministic = torch.are_deterministic_algorithms_enabled()
+        old_benchmark = bool(torch.backends.cudnn.benchmark)
+        old_cudnn_deterministic = bool(torch.backends.cudnn.deterministic)
+        old_cudnn_tf32 = bool(torch.backends.cudnn.allow_tf32)
+        old_matmul_tf32 = bool(torch.backends.cuda.matmul.allow_tf32)
+        old_precision = torch.get_float32_matmul_precision()
+        try:
+            # Strict mode owns this process-level setting; an inherited value
+            # must not silently change the numerical execution recipe.
+            os.environ["CUBLAS_WORKSPACE_CONFIG"] = "conflicting"
+            first_generator, first_runtime = window_stage._seed_everything(37, True)
+            first = (
+                random.random(),
+                float(np.random.random()),
+                torch.rand(4),
+                torch.rand(4, generator=first_generator),
+            )
+            second_generator, second_runtime = window_stage._seed_everything(37, True)
+            second = (
+                random.random(),
+                float(np.random.random()),
+                torch.rand(4),
+                torch.rand(4, generator=second_generator),
+            )
+            self.assertEqual(first[0], second[0])
+            self.assertEqual(first[1], second[1])
+            torch.testing.assert_close(first[2], second[2], rtol=0.0, atol=0.0)
+            torch.testing.assert_close(first[3], second[3], rtol=0.0, atol=0.0)
+            self.assertEqual(first_runtime, second_runtime)
+            self.assertTrue(first_runtime["enabled"])
+            self.assertTrue(first_runtime["torch_deterministic_algorithms"])
+            if torch.backends.cudnn.is_available():
+                self.assertTrue(first_runtime["cudnn_deterministic"])
+            self.assertFalse(first_runtime["cudnn_benchmark"])
+            self.assertTrue(first_runtime["cudnn_allow_tf32"])
+            self.assertFalse(first_runtime["cuda_matmul_allow_tf32"])
+            self.assertEqual(first_runtime["cublas_workspace_config"], ":4096:8")
+            self.assertEqual(torch.get_float32_matmul_precision(), "highest")
+        finally:
+            torch.use_deterministic_algorithms(old_deterministic)
+            torch.backends.cudnn.benchmark = old_benchmark
+            torch.backends.cudnn.deterministic = old_cudnn_deterministic
+            torch.backends.cudnn.allow_tf32 = old_cudnn_tf32
+            torch.backends.cuda.matmul.allow_tf32 = old_matmul_tf32
+            torch.set_float32_matmul_precision(old_precision)
+            if old_workspace is None:
+                os.environ.pop("CUBLAS_WORKSPACE_CONFIG", None)
+            else:
+                os.environ["CUBLAS_WORKSPACE_CONFIG"] = old_workspace
+
+    def test_resume_returns_recorded_selected_checkpoint_not_hardcoded_best(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            npz = base / "windows.npz"
+            npz.write_bytes(b"identity-only")
+            output = base / "member"
+            output.mkdir()
+            args = window_stage.build_parser().parse_args([
+                "--npz-path", str(npz),
+                "--output-dir", str(output),
+                "--fold", "1",
+                "--seed", "0",
+                "--device", "cpu",
+                "--selection-policy", "final_epoch",
+                "--no-deterministic",
+                "--resume",
+            ])
+            fingerprint = {
+                "algorithm": "test",
+                "files": {},
+                "combined_sha256": "f" * 64,
+            }
+            with mock.patch.object(
+                window_stage, "_implementation_fingerprint", return_value=fingerprint
+            ):
+                identity = window_stage._run_identity(args)
+                selected = output / "model_last.pt"
+                state = {
+                    "0.weight": torch.tensor([1.0, 2.0], dtype=torch.float32)
+                }
+                full_sha = window_stage.motion_state_dict_sha256(state)
+                backbone_sha = window_stage._backbone_state_dict_sha256(state)
+                torch.save(
+                    {
+                        "run_identity": identity,
+                        "model": state,
+                        "model_state_dict": state,
+                        "model_state_dict_sha256": full_sha,
+                        "backbone_state_dict_sha256": backbone_sha,
+                        "epoch": 60,
+                        "validation_score": 0.5,
+                    },
+                    selected,
+                )
+                (output / "complete.json").write_text(
+                    json.dumps({
+                        "schema": window_stage.SCHEMA,
+                        "identity": identity,
+                        "checkpoint": selected.name,
+                        "checkpoint_sha256": sha256_file(selected),
+                        "model_state_dict_sha256": full_sha,
+                        "backbone_state_dict_sha256": backbone_sha,
+                        "selected_epoch": 60,
+                        "selected_validation_macro_f1": 0.5,
+                        "selection": {"policy": "final_epoch"},
+                        "complete": True,
+                    }),
+                    encoding="utf-8",
+                )
+                returned = window_stage.train(args)
+            self.assertEqual(returned, selected)
 
     def test_noncanonical_encoder_grid_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -160,7 +334,28 @@ class MemberIdentityTests(unittest.TestCase):
             ])
             identity = window_stage._run_identity(arguments)
             checkpoint = target / "model_best.pt"
-            torch.save({"run_identity": identity}, checkpoint)
+            state = {"0.weight": torch.tensor([1.0, 2.0], dtype=torch.float32)}
+            model_state_sha256 = window_stage.motion_state_dict_sha256(state)
+            backbone_state_sha256 = window_stage._backbone_state_dict_sha256(state)
+            runtime = {
+                "enabled": True,
+                "torch_deterministic_algorithms": True,
+                "cudnn_benchmark": False,
+                "cublas_workspace_config": ":4096:8",
+                "python_hash_seed": "0",
+                "cuda_device_name": None,
+            }
+            torch.save(
+                {
+                    "run_identity": identity,
+                    "model": state,
+                    "model_state_dict": state,
+                    "model_state_dict_sha256": model_state_sha256,
+                    "backbone_state_dict_sha256": backbone_state_sha256,
+                    "determinism": runtime,
+                },
+                checkpoint,
+            )
             complete = {
                 "schema": encoder_cv.WINDOW_SCHEMA,
                 "identity": identity,
@@ -168,6 +363,9 @@ class MemberIdentityTests(unittest.TestCase):
                 "seed": 0,
                 "checkpoint": checkpoint.name,
                 "checkpoint_sha256": sha256_file(checkpoint),
+                "model_state_dict_sha256": model_state_sha256,
+                "backbone_state_dict_sha256": backbone_state_sha256,
+                "determinism": runtime,
                 "complete": True,
             }
             (target / "complete.json").write_text(json.dumps(complete), encoding="utf-8")
@@ -188,6 +386,22 @@ class MemberIdentityTests(unittest.TestCase):
                     npz_sha256=sha256_file(npz),
                     expected_identity=changed,
                 )
+            complete["backbone_state_dict_sha256"] = "0" * 64
+            (target / "complete.json").write_text(
+                json.dumps(complete), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(RuntimeError, "backbone SHA256 mismatch"):
+                encoder_cv._validate_window_member(
+                    target,
+                    fold=1,
+                    seed=0,
+                    npz_sha256=sha256_file(npz),
+                    expected_identity=identity,
+                )
+            complete["backbone_state_dict_sha256"] = backbone_state_sha256
+            (target / "complete.json").write_text(
+                json.dumps(complete), encoding="utf-8"
+            )
             checkpoint.write_bytes(b"changed")
             with self.assertRaisesRegex(RuntimeError, "absent or has changed"):
                 encoder_cv._validate_window_member(
@@ -208,7 +422,32 @@ class MemberIdentityTests(unittest.TestCase):
                 "resolved_device": "cpu",
             }
             checkpoint = target / "motion_encoder_final.pt"
-            torch.save({"run_identity": identity}, checkpoint)
+            runtime = {
+                "enabled": True,
+                "torch_deterministic_algorithms": True,
+                "cudnn_benchmark": False,
+                "cublas_workspace_config": ":4096:8",
+                "python_hash_seed": "0",
+                "cuda_device_name": None,
+                "blas_thread_environment": {
+                    "OMP_NUM_THREADS": "1",
+                    "MKL_NUM_THREADS": "1",
+                    "OPENBLAS_NUM_THREADS": "1",
+                    "NUMEXPR_NUM_THREADS": "1",
+                    "VECLIB_MAXIMUM_THREADS": "1",
+                },
+            }
+            model_sha = "m" * 64
+            teacher_sha = "t" * 64
+            torch.save(
+                {
+                    "run_identity": identity,
+                    "determinism": runtime,
+                    "model_state_dict_sha256": model_sha,
+                    "ema_teacher_state_dict_sha256": teacher_sha,
+                },
+                checkpoint,
+            )
             complete = {
                 "schema": encoder_cv.A2_COMPLETE_SCHEMA,
                 "identity": identity,
@@ -219,28 +458,33 @@ class MemberIdentityTests(unittest.TestCase):
                 "ablation_profile": "A2",
                 "selection_policy": "final_epoch",
                 "final_checkpoint_sha256": sha256_file(checkpoint),
+                "final_model_state_dict_sha256": model_sha,
+                "final_ema_teacher_state_dict_sha256": teacher_sha,
+                "determinism": runtime,
                 "complete": True,
             }
             (target / "complete.json").write_text(json.dumps(complete), encoding="utf-8")
-            self.assertIsNotNone(encoder_cv._validate_a2_member(
-                target,
-                fold=2,
-                seed=5,
-                npz_sha256="n" * 64,
-                source_checkpoint_sha256="s" * 64,
-                expected_identity=identity,
-            ))
-            changed = json.loads(json.dumps(identity))
-            changed["arguments"]["epochs"] = 31
-            with self.assertRaisesRegex(RuntimeError, "another complete run identity"):
-                encoder_cv._validate_a2_member(
+            with mock.patch.object(a2_stage, "_validate_output_checkpoint"):
+                self.assertIsNotNone(encoder_cv._validate_a2_member(
                     target,
                     fold=2,
                     seed=5,
                     npz_sha256="n" * 64,
                     source_checkpoint_sha256="s" * 64,
-                    expected_identity=changed,
-                )
+                    expected_identity=identity,
+                ))
+            changed = json.loads(json.dumps(identity))
+            changed["arguments"]["epochs"] = 31
+            with mock.patch.object(a2_stage, "_validate_output_checkpoint"):
+                with self.assertRaisesRegex(RuntimeError, "another complete run identity"):
+                    encoder_cv._validate_a2_member(
+                        target,
+                        fold=2,
+                        seed=5,
+                        npz_sha256="n" * 64,
+                        source_checkpoint_sha256="s" * 64,
+                        expected_identity=changed,
+                    )
             checkpoint.write_bytes(b"changed")
             with self.assertRaisesRegex(RuntimeError, "absent or has changed"):
                 encoder_cv._validate_a2_member(

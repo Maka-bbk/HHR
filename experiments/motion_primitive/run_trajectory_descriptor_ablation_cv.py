@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -271,7 +272,19 @@ def _quoted(command: Sequence[str]) -> str:
 def _run_command(command: Sequence[str], *, stage: str) -> None:
     print("[command] " + _quoted(command), flush=True)
     try:
-        subprocess.run(list(command), cwd=PROJECT_ROOT, check=True)
+        environment = os.environ.copy()
+        environment.update({
+            "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+            "PYTHONHASHSEED": "0",
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+        })
+        subprocess.run(
+            list(command), cwd=PROJECT_ROOT, check=True, env=environment
+        )
     except subprocess.CalledProcessError as error:
         raise RuntimeError(
             f"Descriptor-ablation stage {stage!r} failed with exit code "

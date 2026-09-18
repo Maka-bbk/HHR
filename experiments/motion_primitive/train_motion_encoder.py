@@ -73,6 +73,7 @@ from models.resnet1d import ResNet1D
 LOGGER = logging.getLogger("motion_encoder_training")
 CHECKPOINT_TYPE = "motion_primitive_encoder"
 SCHEMA_VERSION = 1
+COMPLETE_SCHEMA = "hhr_motion_encoder_training_complete_v2"
 RUN_IDENTITY_SCHEMA = "hhr_motion_encoder_training_identity_v1"
 EXPECTED_CHANNELS = ("acc_x", "acc_y", "acc_z", "gyro_x", "gyro_y", "gyro_z")
 KNOWN_LABEL_ANOMALIES = (
@@ -174,6 +175,48 @@ def _state_dict_sha256(state_dict: dict[str, torch.Tensor]) -> str:
         digest.update(np.asarray(value.shape, dtype=np.int64).tobytes())
         digest.update(value.numpy().tobytes())
     return digest.hexdigest()
+
+
+def _validate_determinism_record(
+    record: dict, *, require_python_hash_seed: bool = False
+) -> None:
+    """Verify that a deterministic A2 run actually enabled the strict runtime."""
+
+    required = {
+        "enabled": True,
+        "torch_deterministic_algorithms": True,
+        "cudnn_benchmark": False,
+        "cublas_workspace_config": ":4096:8",
+    }
+    observed = {key: record.get(key) for key in required}
+    if observed != required:
+        raise RuntimeError(
+            "A2 deterministic runtime record is invalid: "
+            f"{observed!r} != {required!r}."
+        )
+    if require_python_hash_seed and str(record.get("python_hash_seed")) != "0":
+        raise RuntimeError("A2 child process did not use PYTHONHASHSEED=0.")
+    expected_threads = {
+        "OMP_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+        "VECLIB_MAXIMUM_THREADS": "1",
+    }
+    if require_python_hash_seed and record.get("blas_thread_environment") != expected_threads:
+        raise RuntimeError("A2 child process did not pin every BLAS thread pool to one.")
+    if record.get("cuda_device_name") is not None:
+        cuda_required = {
+            "cudnn_deterministic": True,
+            "cudnn_allow_tf32": True,
+            "cuda_matmul_allow_tf32": False,
+        }
+        cuda_observed = {key: record.get(key) for key in cuda_required}
+        if cuda_observed != cuda_required:
+            raise RuntimeError(
+                "A2 CUDA deterministic runtime record is invalid: "
+                f"{cuda_observed!r} != {cuda_required!r}."
+            )
 
 
 def _implementation_fingerprint() -> dict:
@@ -2027,6 +2070,17 @@ def _validate_output_checkpoint(checkpoint: dict) -> None:
     observed_hash = _state_dict_sha256(state)
     if observed_hash != checkpoint.get("model_state_dict_sha256"):
         raise RuntimeError("Output checkpoint model_state_dict SHA256 mismatch.")
+    teacher = checkpoint.get("ema_teacher_state_dict")
+    if not isinstance(teacher, dict):
+        raise RuntimeError("Output checkpoint lacks ema_teacher_state_dict.")
+    teacher_hash = _state_dict_sha256(teacher)
+    if teacher_hash != checkpoint.get("ema_teacher_state_dict_sha256"):
+        raise RuntimeError("Output checkpoint EMA-teacher tensor SHA256 mismatch.")
+    determinism = checkpoint.get("determinism")
+    if not isinstance(determinism, dict):
+        raise RuntimeError("Output checkpoint lacks deterministic runtime metadata.")
+    if bool(checkpoint.get("command_arguments", {}).get("deterministic", False)):
+        _validate_determinism_record(determinism)
     audit = checkpoint.get("split_audit", {})
     if audit.get("outer_test_sensor_windows_selected") != 0 or audit.get("outer_test_model_forward_calls") != 0:
         raise RuntimeError("Output split audit does not prove zero outer-test use.")
@@ -2062,6 +2116,7 @@ def _checkpoint_payload(
     best_metric: float,
     file_role: str,
     run_identity: dict,
+    determinism: dict,
 ) -> dict:
     state = {key: value.detach().cpu().clone() for key, value in model_state.items()}
     teacher = {key: value.detach().cpu().clone() for key, value in teacher_state.items()}
@@ -2076,6 +2131,8 @@ def _checkpoint_payload(
         "model": state,
         "ema_teacher_state_dict": teacher,
         "model_state_dict_sha256": _state_dict_sha256(state),
+        "ema_teacher_state_dict_sha256": _state_dict_sha256(teacher),
+        "determinism": copy.deepcopy(determinism),
         "implementation_fingerprint": _implementation_fingerprint(),
         "run_identity": copy.deepcopy(run_identity),
         "npz_sha256": npz_sha256,
@@ -2148,20 +2205,64 @@ def _close_logging() -> None:
         LOGGER.removeHandler(handler)
 
 
-def _seed_everything(seed: int, deterministic: bool) -> torch.Generator:
+def _seed_everything(
+    seed: int, deterministic: bool
+) -> tuple[torch.Generator, dict]:
+    if deterministic:
+        # Must be set before the first CUDA BLAS handle is created.
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
     random.seed(int(seed))
     np.random.seed(int(seed))
     torch.manual_seed(int(seed))
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(int(seed))
+    torch.use_deterministic_algorithms(bool(deterministic))
+    if torch.backends.cudnn.is_available():
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = bool(deterministic)
+        if deterministic:
+            # Match the historical cuDNN convolution precision route while
+            # deterministic kernel selection is enforced independently.
+            torch.backends.cudnn.allow_tf32 = True
     if deterministic:
-        torch.use_deterministic_algorithms(True)
-        if torch.backends.cudnn.is_available():
-            torch.backends.cudnn.benchmark = False
-            torch.backends.cudnn.deterministic = True
+        if torch.cuda.is_available():
+            torch.backends.cuda.matmul.allow_tf32 = False
+        torch.set_float32_matmul_precision("highest")
     generator = torch.Generator(device="cpu")
     generator.manual_seed(int(seed) + 7919)
-    return generator
+    runtime = {
+        "enabled": bool(deterministic),
+        "torch_deterministic_algorithms": bool(
+            torch.are_deterministic_algorithms_enabled()
+        ),
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
+        "cuda_matmul_allow_tf32": bool(torch.backends.cuda.matmul.allow_tf32),
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "python_hash_seed": os.environ.get("PYTHONHASHSEED"),
+        "blas_thread_environment": {
+            name: os.environ.get(name)
+            for name in (
+                "OMP_NUM_THREADS",
+                "MKL_NUM_THREADS",
+                "OPENBLAS_NUM_THREADS",
+                "NUMEXPR_NUM_THREADS",
+                "VECLIB_MAXIMUM_THREADS",
+            )
+        },
+        "torch_version": str(torch.__version__),
+        "cuda_version": None if torch.version.cuda is None else str(torch.version.cuda),
+        "cudnn_version": (
+            None if not torch.backends.cudnn.is_available()
+            else int(torch.backends.cudnn.version())
+        ),
+        "cuda_device_name": (
+            None if not torch.cuda.is_available()
+            else str(torch.cuda.get_device_name(0))
+        ),
+    }
+    return generator, runtime
 
 
 def _choose_device(value: str) -> torch.device:
@@ -2304,6 +2405,8 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
         final_path = output_dir / "motion_encoder_final.pt"
         if bool(getattr(args, "resume", False)) and complete_path.is_file() and final_path.is_file():
             completion = json.loads(complete_path.read_text(encoding="utf-8"))
+            if completion.get("schema") != COMPLETE_SCHEMA:
+                raise RuntimeError("Completed motion-encoder schema is incompatible.")
             if completion.get("identity") != run_identity:
                 raise RuntimeError(
                     "Completed motion-encoder directory records another run identity; "
@@ -2320,6 +2423,28 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
                 raise RuntimeError("Completed motion encoder records another run identity.")
             if checkpoint.get("npz_sha256") != npz_sha:
                 raise RuntimeError("Completed motion encoder is bound to another NPZ.")
+            if completion.get("final_model_state_dict_sha256") != checkpoint.get(
+                "model_state_dict_sha256"
+            ):
+                raise RuntimeError(
+                    "Completed motion encoder model tensor SHA256 mismatch."
+                )
+            if completion.get(
+                "final_ema_teacher_state_dict_sha256"
+            ) != checkpoint.get("ema_teacher_state_dict_sha256"):
+                raise RuntimeError(
+                    "Completed motion encoder EMA-teacher tensor SHA256 mismatch."
+                )
+            if completion.get("determinism") != checkpoint.get("determinism"):
+                raise RuntimeError(
+                    "Completed motion encoder deterministic runtime differs from checkpoint."
+                )
+            if bool(args.deterministic):
+                _validate_determinism_record(
+                    completion.get("determinism", {})
+                    if isinstance(completion.get("determinism"), dict)
+                    else {}
+                )
             LOGGER.info("Resume verified completed motion encoder: %s", final_path)
             return final_path
         raise FileExistsError(
@@ -2333,7 +2458,9 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
     LOGGER.info("USC-HAD NPZ: %s", npz_path)
     LOGGER.info("Protocol: train-subject old classes -> validation-subject old classes; outer test unused")
 
-    generator = _seed_everything(int(args.seed), bool(args.deterministic))
+    generator, determinism = _seed_everything(
+        int(args.seed), bool(args.deterministic)
+    )
     train_records, val_records, fold_mean, fold_std, split_audit = load_train_validation_trials(
         npz_path,
         split,
@@ -2521,6 +2648,7 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
         best_metric=best_metric,
         file_role="best_validation",
         run_identity=run_identity,
+        determinism=determinism,
     )
     if args.selection_policy == "best_val_total":
         final_model_state = best_model_state
@@ -2554,6 +2682,7 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
         best_metric=best_metric,
         file_role="canonical_final",
         run_identity=run_identity,
+        determinism=determinism,
     )
     _validate_output_checkpoint(best_payload)
     _validate_output_checkpoint(final_payload)
@@ -2571,7 +2700,7 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
     _write_json(
         output_dir / "complete.json",
         {
-            "schema": "hhr_motion_encoder_training_complete_v1",
+            "schema": COMPLETE_SCHEMA,
             "identity": run_identity,
             "source_checkpoint_sha256": source_sha,
             "npz_sha256": npz_sha,
@@ -2585,6 +2714,19 @@ def _run_training_impl(args: argparse.Namespace) -> Path:
             "best_validation_total_loss": float(best_metric),
             "best_checkpoint_sha256": _sha256_file(best_path),
             "final_checkpoint_sha256": _sha256_file(final_path),
+            "best_model_state_dict_sha256": str(
+                best_payload["model_state_dict_sha256"]
+            ),
+            "best_ema_teacher_state_dict_sha256": str(
+                best_payload["ema_teacher_state_dict_sha256"]
+            ),
+            "final_model_state_dict_sha256": str(
+                final_payload["model_state_dict_sha256"]
+            ),
+            "final_ema_teacher_state_dict_sha256": str(
+                final_payload["ema_teacher_state_dict_sha256"]
+            ),
+            "determinism": copy.deepcopy(determinism),
             "smoke_test": bool(split_audit.get("smoke_test", False)),
             "outer_test_model_forward_calls": int(
                 split_audit.get("outer_test_model_forward_calls", 0)

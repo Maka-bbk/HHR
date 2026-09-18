@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
@@ -24,6 +25,17 @@ from typing import Any, Mapping, Optional, Sequence
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# These must be fixed before NumPy/scikit-learn load their BLAS/OpenMP pools.
+for _environment_name, _environment_value in {
+    "CUBLAS_WORKSPACE_CONFIG": ":4096:8",
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "VECLIB_MAXIMUM_THREADS": "1",
+}.items():
+    os.environ[_environment_name] = _environment_value
 
 import matplotlib
 
@@ -34,6 +46,7 @@ import sklearn
 import torch
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score, normalized_mutual_info_score
+from threadpoolctl import threadpool_info, threadpool_limits
 
 from experiments.motion_primitive.frozen_e0 import (
     ABSOLUTE_DURATION_DESCRIPTOR_NAMES,
@@ -58,6 +71,7 @@ from experiments.motion_primitive.frozen_e0 import (
 )
 from experiments.motion_primitive.motion_checkpoint import motion_state_dict_sha256
 from experiments.motion_primitive.strict_artifacts import (
+    configure_deterministic_runtime,
     encode_sensor_trials,
     load_frozen_a2_encoder,
     write_csv,
@@ -315,6 +329,23 @@ def _identity(args: argparse.Namespace) -> dict[str, Any]:
             "numpy": np.__version__,
             "sklearn": sklearn.__version__,
             "torch": torch.__version__,
+            "deterministic_algorithms": bool(
+                torch.are_deterministic_algorithms_enabled()
+            ),
+            "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+            "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+            "cudnn_allow_tf32": bool(torch.backends.cudnn.allow_tf32),
+            "cuda_matmul_allow_tf32": bool(
+                torch.backends.cuda.matmul.allow_tf32
+            ),
+            "blas_thread_pools": [
+                {
+                    "internal_api": str(item.get("internal_api")),
+                    "user_api": str(item.get("user_api")),
+                    "num_threads": int(item.get("num_threads", -1)),
+                }
+                for item in threadpool_info()
+            ],
         },
         "implementation_sha256": _implementation_hashes(),
     }
@@ -1137,7 +1168,7 @@ def validate_args(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
-def run(args: argparse.Namespace) -> dict[str, Any]:
+def _run_deterministic(args: argparse.Namespace) -> dict[str, Any]:
     args = validate_args(args)
     descriptor_spec = descriptor_profile_spec(args.descriptor_profile)
     output = Path(args.output_dir).expanduser().resolve()
@@ -1737,6 +1768,30 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         nmi,
     )
     return complete
+
+
+def run(args: argparse.Namespace) -> dict[str, Any]:
+    """Run one member under a single-threaded CPU and strict CUDA runtime."""
+
+    runtime = configure_deterministic_runtime(int(args.seed))
+    with threadpool_limits(limits=1):
+        pools = [
+            {
+                "internal_api": str(item.get("internal_api")),
+                "user_api": str(item.get("user_api")),
+                "num_threads": int(item.get("num_threads", -1)),
+            }
+            for item in threadpool_info()
+        ]
+        if any(item["num_threads"] != 1 for item in pools):
+            raise RuntimeError(
+                f"A downstream BLAS/OpenMP pool escaped the one-thread limit: {pools}."
+            )
+        if not runtime["torch_deterministic_algorithms"]:
+            raise RuntimeError(
+                "Frozen downstream execution did not enable strict PyTorch mode."
+            )
+        return _run_deterministic(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
