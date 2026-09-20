@@ -4,15 +4,52 @@
 
 HHR 验证如下假设：对 USC-HAD，一个完整 activity trial（活动试次）不应只压缩为单个 mean/max pooled feature（均值/最大池化特征）；先把按时间排序的局部窗口编码为 Motion Primitive（动作元），再利用动作元的种类、数量、持续时间、位置、顺序、转移和物理状态构造 activity trajectory（活动轨迹），可能更有利于 Continual Generalized Category Discovery（连续广义类别发现，CGCD）。
 
-当前正式实现是冻结式 `A2 + E0 + state + K32` 验证路线。动作元模块存在、轨迹图清晰或某类只出现一个 token 都不能单独证明假设；最终证据必须来自严格 CGCD 分类指标及配对消融。
+当前活动实现（2026-09-19 起）是 fixed split 01（固定划分 1）的 `A2 + E0 + W128/S64 + K64` 三臂验证；历史冻结式 `A2 + E0 + state + K32` 七折三会话路线保留用于复现，但不再是新实验默认入口。动作元模块存在、轨迹图清晰或某类只出现一个 token 都不能单独证明假设；证据必须来自预注册的配对消融和冻结预测后的分类指标。
+
+### 1.1 当前固定划分与种子语义
+
+- 内部仍使用 registered split id `fold=1` 核验数据和 checkpoint（检查点），但 CLI（命令行接口）不提供 folds（多折）参数；
+- 训练/验证/outer-test（外层测试）受试者固定为 `10/2/2`，outer-test 仅为受试者 `10,11`；
+- 编码器来源包含两条线：`R0_reuse_0914v1` 复用既有 `W128/S64、A2、fold 1、encoder_seed=0` 检查点；`R1_retrained_current` 从 seed 0 随机 ResNet1D 初始化重新训练相同的 60 轮窗口阶段和 30 轮 A2 阶段；
+- 每条编码器线的 `run_seed=0,5,50,500` 只改变 Offline old6 K64 码本、无标签 GMM（高斯混合模型）门控和 KMeans（K 均值）聚类，不代表四个独立编码器种子；
+- R0 是历史训练产物，R1 使用当前训练源码，因此二者比较不是纯随机初始化单因素实验，而是历史已训练编码器与当前重训编码器的来源比较；
+- 单一受试者划分不能估计跨受试者总体 confidence interval（置信区间）。只报告四个下游随机种子的逐项值、均值与样本标准差。
+
+### 1.2 当前三臂数据流
+
+```text
+两条 encoder 来源：R0 复用 0914v1；R1 从随机 ResNet1D 重新训练 warm-up -> A2
+  -> 各自冻结 fold-1/seed-0 A2 encoder
+  -> Offline old6 拟合 K64 动作元码本
+  -> 120 条 outer trial 形成动作元轨迹
+  -> B0：时长不变轨迹描述器 -> 全局 KMeans12
+  -> E1：无标签静态/动态 GMM 门控
+       -> dynamic：时长不变动作元轨迹专家
+       -> static：姿态 + 能量 + 带符号重力 + 低权重动作元独立专家
+       -> 按无标签门控成员比例分配 K_dynamic/K_static，总和固定为 12
+  -> E2：完全复用 E1 的门控、K 分配、静态专家和静态预测
+       -> 仅 dynamic 改为时长不变 + alpha=0.25 软受试者去偏
+       -> dynamic outer 子集拟合无标签坐标/PCA32
+       -> Offline old6 的 300 条源轨迹、10 名源受试者拟合 rank<=4 干扰基
+       -> z'=L2Norm[z-0.25(zB^T)B]
+  -> 先冻结 raw cluster IDs 及 SHA256
+  -> 后打开 TruthStore，进行全局 Hungarian scoring（匈牙利评分）
+  -> 顶层按同一 run_seed 配对比较 R1-R0
+```
+
+静态专家的距离预算预注册为：姿态 `0.35`、带符号重力 `0.35`、能量 `0.20`、动作元 `0.10`。带符号重力块使用 confidence-preserving normalization（保置信度归一化）：强信号被限幅，但安静试次的微小噪声不会被强制放大为单位长度。门控和专家 API 不接收 activity label（活动标签）或 outer subject ID（外层受试者编号）。E2 的干扰基只使用源域受试者元数据；其拟合 API 不接收活动标签，但源 cohort（队列）由注册协议预先限定为 old6，因此不能把整条流程描述成完全无标签。完整分配公式为 `K_static=clip(round(12*N_static/120),1,12-K_old)`、`K_dynamic=12-K_static`，其中已知旧类数 `K_old=6` 是动态分支下界。该估计同时假设 USC-HAD outer batch 每类 trial 数相等、门控近似按完整活动类形成纯分支；在不平衡、类跨分支或真实流式数据上不能直接使用。
+
+该协议仍然是 known-K12 transductive batch GCD（已知总类数的传导式批量广义类别发现），不是 sequential Online CGCD（顺序在线连续广义类别发现）。此外，old6 全部属于人体动态类，而 new6 中五类属于人体静态类，因此静动态门控也是一个明显的 old/new shortcut（旧新类捷径）；即便 E1/E2 提升，也不能直接证明其可泛化到静动态混合的新旧类划分。`E1-B0` 同时包含门控、分支内坐标重拟合和静态物理专家三个变化，只能解释为“完整组合路线效果”，不能单独归因为静态专家的纯因果贡献；`E2-E1` 共享门控、分支 K 与静态预测，才隔离动态软去偏增量。E2 在 gate-selected dynamic subset（门控选出的动态子集）拟合坐标，而早期 A025 单因素实验在全部 120 条 outer 上拟合坐标，两者不是同一个实验范围。
 
 ## 2. 术语和三个不同的“K”
 
 文档中必须区分：
 
-- `E0 capacity-K=32`：固定动作元码本有 32 个中心；
+- 当前 `E0 capacity-K=64`：固定动作元码本有 64 个中心；
+- 历史 Online `E0 capacity-K=32`：旧七折路线固定使用 32 个中心；
 - `actual used-K`：某个数据划分实际用到的不同动作元 token 数；
-- `activity registry K`：当前已经注册的活动类别原型数，初始为 6，Online 最多依次增长。
+- `activity cluster K=12`：当前 batch GCD 三臂预先知道的总活动簇数；
+- `activity registry K`：历史 Online 路线已经注册的活动类别原型数，初始为 6，随后最多依次增长。
 
 Online 只允许第三项增长。把 activity registry 增长写成“动作元码本从 32 扩容”是错误的。
 
@@ -20,25 +57,27 @@ E0 的一个 primitive occurrence（动作元出现）对应一个已保存窗�
 
 ## 3. 数据、受试者划分与标签边界
 
-### 3.1 输入窗口
+### 3.1 当前输入窗口
 
-正式输入为：
+当前输入为：
 
 ```text
-processed/uschad_w256_s128_train17stats/uschad_windows.npz
+processed/uschad_w128_s64_train17stats/uschad_windows.npz
 ```
 
 - 六个通道：三轴加速度和三轴角速度；
-- window size（窗口长度）256 samples，stride（步长）128 samples；
-- 采样率 100 Hz，对应 2.56 秒窗口和 1.28 秒移动步长；
+- window size（窗口长度）128 samples，stride（步长）64 samples；
+- 采样率 100 Hz，对应 1.28 秒窗口和 0.64 秒移动步长；
 - 通过 `trial_global_ids`、`window_indices` 和 `window_start_indices` 恢复完整有序窗口轨迹；
-- 不足 256 个采样点的原始尾段已在预处理时丢弃，因此“完整 trial”只指 NPZ 内所有已保存完整窗口。
+- 不足 128 个采样点的原始尾段已在预处理时丢弃，因此“完整 trial”只指 NPZ 内所有已保存完整窗口。
 
-NPZ 自带的历史归一化只用于恢复原始六轴数值。每个 fold（折）重新用该折训练受试者旧类窗口拟合 mean/std（均值/标准差），再用于模型输入；外层受试者不参与归一化。
+NPZ、固定 A2 checkpoint 及其 fold-1 mean/std（均值/标准差）必须通过 SHA256 和 checkpoint metadata（检查点元数据）共同核验。NPZ 中可逆的历史归一化用于恢复门控和静态专家需要的原始六轴数值；outer 数据不重新拟合编码器归一化。
 
-### 3.2 固定受试者协议
+历史七折 Online 路线使用 `uschad_w256_s128_train17stats/uschad_windows.npz`，对应 256/128 栅格；下文历史章节中的 W256/K32 只属于该路线。
 
-使用 7-fold subject-disjoint cross-validation（7 折受试者无交叉交叉验证）：
+### 3.2 历史七折受试者协议
+
+以下 7-fold subject-disjoint cross-validation（7 折受试者无交叉交叉验证）只描述历史 Online 路线：
 
 - 10 名训练受试者；
 - 2 名验证受试者；
@@ -317,9 +356,9 @@ label-free descriptors
 - macro-F1；
 - Unknown count/fraction。
 
-## 11. 7 折 × 4 种子 × 3 会话统计
+## 11. 历史 7 折 × 4 种子 × 3 会话统计
 
-正式 grid（网格）固定为：
+历史 grid（网格）固定为：
 
 ```text
 folds = 1,2,3,4,5,6,7
@@ -364,9 +403,9 @@ Activity×primitive 不能按所有窗口直接求和，否则长 trial 和 tria
 
 KMeans 的中心编号可任意置换。`P0..P31` 只在单个 fold/seed member 内可解释；跨折/种子平均同编号热图在没有中心对齐时没有统计含义。正式入口默认只为 fold 1/seed 0 生成解释图，跨成员比较应先用码本中心做无标签匹配并公开匹配方法。
 
-## 13. 中断、恢复与身份锁定
+## 13. 历史七折入口的中断、恢复与身份锁定
 
-正式根入口是 `experiments/motion_primitive/run_full_cv.py`。输出根的 `grid_manifest.json` 固化：
+历史根入口是 `experiments/motion_primitive/run_full_cv.py`。输出根的 `grid_manifest.json` 固化：
 
 - NPZ 解析路径和 SHA256；
 - folds/seeds；
@@ -386,16 +425,16 @@ KMeans 的中心编号可任意置换。`P0..P31` 只在单个 fold/seed member 
 
 ## 14. Legacy 与历史数值的可比性
 
-旧 `joint VQ + learned boundary + GRU`（联合向量量化、学习边界与门控循环网络）路线仍可作为 legacy（历史代码）保留，但不在正式根入口的数据流中。它与当前路线的关键差异包括：
+旧 `joint VQ + learned boundary + GRU`（联合向量量化、学习边界与门控循环网络）路线仍可作为 legacy（历史代码）保留。下列“当前路线”均指本节所比较的历史冻结 Online 路线，不是文档顶部 2026-09-19 fixed-split 三臂实验：
 
 - 旧路线端到端更新编码器、可学习 VQ 码本、边界头和 GRU；
-- 当前路线先完成固定 A2 表征，再用非参数 E0 K32 和结构化 state descriptor；
-- 旧路线 Online 可更新神经参数或动作元码本；当前路线只追加 activity registry；
-- 旧路线评估协议与当前 raw-prediction-first、三层严格评分不同。
+- 历史冻结 Online 路线先完成固定 A2 表征，再用非参数 E0 K32 和结构化 state descriptor；
+- 旧路线 Online 可更新神经参数或动作元码本；历史冻结 Online 路线只追加 activity registry；
+- 旧路线评估协议与历史冻结路线的 raw-prediction-first、三层严格评分不同。
 
 旧实验报告的 `75.96%` 属于 batch oracle（批次先验上界）结果，不是当前严格 Online registry 指标。即使数值更高，也不能与 `old_fixed_novel_hungarian` 直接比较。公平比较需要把 legacy 表征冻结后接入完全相同的 7×4×3 stream、拒识/Unknown buffer、append-only registry 和三层评分；否则差异可能来自 oracle 信息、数据单位或对齐方式，而不是动作元方法本身。
 
-## 15. 已知限制和下一步消融
+## 15. 历史冻结 Online 路线的已知限制和消融
 
 - E0 边界受 1.28 秒步长限制，不是采样点级真实动作边界；
 - 每个 E0 token 对应固定窗口，当前尚未验证变点式变长动作元是否优于 E0；
@@ -416,4 +455,4 @@ KMeans 的中心编号可任意置换。`P0..P31` 只在单个 fold/seed member 
 5. 固定 E0 K32 vs 经预注册规则控制的动作元码本扩展；
 6. 当前已知两新类先验 vs 无新类数先验的模型选择。
 
-只有在主层 H-score、Old、New 和 macro-F1 上形成跨折稳定收益，且收益不依赖 global Hungarian 上界，才能认为动作元轨迹路线对 CGCD 分类任务有效。
+上述跨折成功标准只适用于历史七折 Online 路线。当前 fixed split 01 实验只能确认受试者 10/11 上的机制可行性和四个下游种子的算法稳定性，不能提供跨受试者总体结论。

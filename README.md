@@ -1,10 +1,42 @@
 # HHR：冻结动作元轨迹 HAR-CGCD
 
-HHR 是独立的 wearable-sensor Human Activity Recognition（可穿戴传感器人体活动识别）与 Continual Generalized Category Discovery（连续广义类别发现，CGCD）研究项目。当前唯一正式路线围绕 Motion Primitive（动作元）展开：先获得稳定的局部窗口表征，再把完整 activity trial（活动试次）表示为离散动作元轨迹，最终进行旧类保持和无标签新类发现。
+HHR 是独立的 wearable-sensor Human Activity Recognition（可穿戴传感器人体活动识别）与 Continual Generalized Category Discovery（连续广义类别发现，CGCD）研究项目。当前路线围绕 Motion Primitive（动作元）展开：先获得稳定的局部窗口表征，再把完整 activity trial（活动试次）表示为离散动作元轨迹，最终进行旧类保持和无标签新类发现。
 
-当前代码完成的是一条可审计的验证协议，不代表动作元假设已经获得实验支持。是否成功只由严格多折、多种子 CGCD 分类结果决定，而不是由动作元数量、图像复杂度或单次最好结果决定。
+## 当前实验规则（2026-09-19 起）
 
-## 正式主线
+当前活动协议已经停止扩展七折网格，只使用 fixed split 01（固定划分 1）：训练受试者为 `1,3,4,5,6,7,8,9,12,14`，验证受试者为 `2,13`，outer-test（外层测试）受试者为 `10,11`。这里应称“固定划分 1”，不能称为 1-fold cross-validation（单折交叉验证），也不能把结果外推为 14 名受试者总体性能。
+
+当前同时设置两个 encoder provenance（编码器来源）分支：`R0_reuse_0914v1` 严格复用 `window_codebook_batch_proxy_3arm_3fold2seed_20260914_v1` 中 `W128/S64、A2、fold 1、seed 0` 的 `motion_encoder_final.pt`；`R1_retrained_current` 使用相同数据划分和超参数，从 seed 0 的随机 ResNet1D 初始化重新完成 60 轮窗口训练和 30 轮 A2 训练。两条线各自运行 `run_seed=0,5,50,500`；这些 run seed 只控制 K64 动作元码本、静动态门控与下游聚类，不是四个端到端编码器种子。总计为 `2 个编码器来源 × 4 个下游种子 × 3 个读出臂 = 24 个评分单元`。
+
+`R1` 使用当前源码重新训练，而 `R0` 是历史 checkpoint（检查点）；两个训练入口源码的身份哈希并不相同，因此两者差值是“历史已训练编码器 vs 当前重新训练编码器”的实用比较，不是纯粹的随机初始化单因素因果效应。固定划分只报告逐 run-seed 值、均值和算法随机性标准差，不计算跨折 bootstrap confidence interval（自助置信区间）。
+
+当前实验报告三个配对实验臂：
+
+| 实验臂 | 数据流 |
+|---|---|
+| `B0_global_trajectory` | 全部 120 条 outer 轨迹使用时长不变动作元描述器，再做全局 KMeans12 |
+| `E1_gate_static_expert` | 无标签静态/动态门控；动态分支使用时长不变动作元轨迹专家；静态分支使用姿态、能量、带符号重力趋势和低权重动作元的独立专家 |
+| `E2_gate_static_expert_soft_a025` | 完全复用 E1 的门控、分支 K、静态专家与静态预测；仅在动态分支加入 α=0.25 的 soft subject debiasing（软受试者去偏） |
+
+E2 是三个模块的最终汇集臂：duration invariance（时长不变）、软受试者去偏、以及带 signed gravity（带符号重力）的静态独立专家。软去偏使用 `z'=L2Norm[z-0.25(zB^T)B]`；动态 outer 子集只负责无标签坐标/PCA32 拟合，干扰基 `B` 仅用 Offline old6 的 300 条源轨迹和 10 名源受试者身份拟合，rank（秩）不超过 4、解释率目标为 0.90。它不读取 outer 受试者身份。这里是动态专家范围内的新组合变体：其 PCA 拟合范围不是早期 A025 单因素实验的全部 120 条 outer，不能把两者称为逐字复现。
+
+`E1-B0` 衡量门控、分支化和重力静态专家的整体变化；`E2-E1` 才是同门控、同 K、同静态预测条件下软去偏的配对增量。由于 B0 与 E1 的动态坐标拟合范围本来不同，`E1-B0` 不能被解释成纯重力单变量效应。
+
+`K_dynamic + K_static = 12` 按无标签门控成员比例分配，完整公式为 `K_static=clip(round(12*N_static/120),1,12-K_old)`、`K_dynamic=12-K_static`，其中 CGCD 已知旧类数 `K_old=6` 提供动态分支下界。在固定 outer batch 的 `70/50` 成员下得到 `7/5`，而不是直接把真实静态类别数写入学习器。该估计成立还要求 USC-HAD 每个活动 trial 数相等，且门控近似按完整活动类形成纯分支；不平衡数据流或类内跨门控分裂时必须另行估计类别数，不能照搬。代码不再拟合或报告“仅门控、静态仍用普通轨迹”的第三臂。所有门控、分支变换和聚类都在 `raw_predictions.npz` 写盘并计算 SHA256 之前完成；活动真值只能在此后进入 scorer（评分器）。该实验仍是 known-K12 transductive batch GCD（已知总类数的传导式批量广义类别发现），不是多会话 Online CGCD（在线连续广义类别发现）。
+
+PyCharm Linux/WSL 终端一行命令：
+
+```bash
+cd /mnt/d/WorkDir/HHR && /home/bj/miniconda3/envs/hhr/bin/python experiments/motion_primitive/run_dual_encoder_static_dynamic_fixedsplit01.py --npz-path /mnt/d/WorkDir/HHR/processed/uschad_w128_s64_train17stats/uschad_windows.npz --reused-encoder-root /mnt/d/WorkDir/HHR/results/motion_primitive/window_codebook_batch_proxy_3arm_3fold2seed_20260914_v1 --output-root /mnt/d/WorkDir/HHR/results/motion_primitive/duration_soft_a025_static_dynamic_dual_encoder_fixedsplit01_4runseed_20260919_v1 --encoder-seed 0 --run-seeds 0,5,50,500 --window-epochs 60 --window-batch-size 256 --window-eval-batch-size 1024 --window-learning-rate 0.1 --window-weight-decay 0.0005 --window-weak-scale-std 0.1 --window-strong-scale-std 0.2 --a2-epochs 30 --a2-trial-batch-size 8 --a2-source-encode-batch-size 1024 --a2-learning-rate 0.0001 --a2-minimum-learning-rate 0.000001 --a2-weight-decay 0.0001 --cp-context-windows 2 --encode-batch-size 1024 --gate-n-init 20 --kmeans-n-init 50 --kmeans-max-iter 300 --subject-nuisance-max-rank 4 --subject-nuisance-explained-variance 0.90 --subject-nuisance-projection-strength 0.25 --static-motion-primitive-pca-dim 8 --static-posture-weight 0.35 --static-gravity-weight 0.35 --static-energy-weight 0.20 --static-motion-primitive-weight 0.10 --num-workers 0 --device cuda --resume
+```
+
+当前 dual suite（双分支实验套件）的 `--resume` 会核验顶层 identity（身份）、两条 encoder checkpoint SHA256、重新训练的窗口/A2 完成标记、两个下游 suite identity、八个 member identity（成员身份）与精确 artifact SHA256（产物哈希）；顶层、suite 和 member 输出目录都有独占写锁。执行顺序是重新训练编码器，再依次运行两个下游分支，避免同一 GPU 并行争抢；中断后原样重跑上面一行即可。参数、数据、依赖源码或环境版本变化时必须改用新的 `--output-root`，不能复制其他实验的成员目录进行接管。
+
+每个编码器分支的 `aggregate.json`、顶层 `branch_comparison.json` 与 `member_rows.csv` 中的 headline 指标统一标记为 `global_hungarian_upper_bound`（全局匈牙利匹配上界）：它用于比较三臂的无标签可聚类性，不是旧类身份固定的部署准确率。
+
+## 历史严格 Online 主线（仅保留复现，不是当前默认规则）
+
+以下七折、三会话、K32 内容及命令保留用于核验既有结果和 artifact（产物），不得作为新实验默认网格，也不应删除旧结果或改写其 manifest（清单）。
 
 ```text
 旧六类窗口
@@ -110,7 +142,7 @@ Online 唯一可变状态是：
 
 注意：Online 增长的是活动类别注册表，不是 E0 动作元码本。正式路线的 E0 始终是 K32。
 
-## USC-HAD 协议
+## 历史 USC-HAD 七折协议
 
 - 默认数据：`processed/uschad_w256_s128_train17stats/uschad_windows.npz`；
 - 窗口 256 samples（采样点），stride（步长）128，采样率 100 Hz；
@@ -121,7 +153,7 @@ Online 唯一可变状态是：
 - Offline 试次数固定为 train/validation/outer-test=`300/60/60`；
 - Online train 与 evaluation trial ID 严格不重叠，session 之间也不重复使用 incoming trial。
 
-## 三层指标与 84 行统计
+## 历史三层指标与 84 行统计
 
 每个 fold/seed/session 都保存三套严格区分的评分层：
 
@@ -241,9 +273,9 @@ cd /mnt/d/WorkDir/HHR && /home/bj/miniconda3/envs/hhr/bin/python experiments/mot
 cd /mnt/d/WorkDir/HHR && /home/bj/miniconda3/envs/hhr/bin/python experiments/motion_primitive/run_trajectory_descriptor_ablation_cv.py --experiment-part duration_soft_subject --npz-path /mnt/d/WorkDir/HHR/processed/uschad_w128_s64_train17stats/uschad_windows.npz --encoder-source-root /mnt/d/WorkDir/HHR/results/motion_primitive/window_codebook_batch_proxy_3arm_3fold2seed_20260914_v1/encoders/w128_s64 --output-root /mnt/d/WorkDir/HHR/results/motion_primitive/w128_k64_duration_soft_subject_alpha_grid_3fold2seed_20260916_v1 --folds 1,2,3 --seeds 0,5 --subject-nuisance-max-rank 4 --subject-nuisance-explained-variance 0.90 --kmeans-n-init 50 --kmeans-max-iter 300 --encode-batch-size 1024 --bootstrap-seed 20260916 --bootstrap-replicates 10000 --device cuda --resume
 ```
 
-## PyCharm Linux/WSL 一行正式命令
+## 历史七折 PyCharm Linux/WSL 命令
 
-在 PyCharm 的 Linux/WSL 终端中粘贴下面完整一行：
+下面命令只用于历史七折路线复现，不是当前默认命令：
 
 ```bash
 cd /mnt/d/WorkDir/HHR && /home/bj/miniconda3/envs/hhr/bin/python experiments/motion_primitive/run_full_cv.py --npz-path /mnt/d/WorkDir/HHR/processed/uschad_w256_s128_train17stats/uschad_windows.npz --output-root /mnt/d/WorkDir/HHR/results/motion_primitive/frozen_a2_e0_state_k32_strict_7fold4seed_20260912_v1 --folds 1,2,3,4,5,6,7 --seeds 0,5,50,500 --window-epochs 60 --window-batch-size 64 --window-eval-batch-size 256 --window-learning-rate 0.1 --window-weight-decay 0.0005 --window-weak-scale-std 0.1 --window-strong-scale-std 0.2 --a2-epochs 30 --a2-trial-batch-size 8 --a2-learning-rate 0.0001 --a2-minimum-learning-rate 0.000001 --a2-weight-decay 0.0001 --encode-batch-size 512 --num-workers 0 --old-distance-alpha 0.05 --old-ratio-alpha 0.05 --novel-distance-alpha 0.05 --minimum-cluster-trials 3 --minimum-cluster-subjects 2 --minimum-cluster-silhouette 0.20 --discovery-bootstrap-replicates 100 --minimum-bootstrap-stability 0.80 --minimum-registry-separation 0.10 --minimum-candidate-separation 0.10 --summary-bootstrap-seed 20260912 --device cuda --visualize --visual-fold 1 --visual-seed 0 --maximum-trial-plots 0 --visual-dpi 180 --resume
@@ -251,7 +283,7 @@ cd /mnt/d/WorkDir/HHR && /home/bj/miniconda3/envs/hhr/bin/python experiments/mot
 
 该入口按顺序完成 28 个窗口编码器、28 个 A2 编码器、28 个 Offline 冻结读出、28 个三会话 Online 成员、84 行统计汇总，以及 fold 1/seed 0 的完整可视化。它是顺序执行，预计运行时间主要由 56 次编码器训练决定。
 
-## 中断与 `--resume`
+## 历史七折入口的中断与 `--resume`
 
 可以在终端用 `Ctrl+C` 中断；继续时原样重跑上面一行命令。
 
